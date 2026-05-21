@@ -8,11 +8,15 @@
     "start": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "deploy": "npm run build && gh-pages -d dist --branch gh-pages --dotfiles -m \"Deploy site\""
   },
   "dependencies": {
     "@astrojs/starlight": "^0.30.0",
     "astro": "^5.0.0",
     "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "gh-pages": "^6.3.0"
   }
 }
