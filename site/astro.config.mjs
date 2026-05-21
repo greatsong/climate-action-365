@@ -27,6 +27,10 @@ export default defineConfig({
           label: '교사용',
           autogenerate: { directory: 'teacher' },
         },
+        {
+          label: '부록',
+          autogenerate: { directory: 'appendix' },
+        },
       ],
       customCss: ['./src/styles/custom.css'],
       lastUpdated: true,
