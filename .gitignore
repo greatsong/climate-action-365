@@ -1,0 +1,36 @@
+# Node / Astro
+node_modules/
+dist/
+.astro/
+.cache/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+*.tmp
+buffer.jsonl
+
+# Env
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# Database (실제 운영 데이터는 push 금지)
+*.db
+*.sqlite
+
+# Backup
+/mnt/backup/

@@ -1,0 +1,582 @@
+# Unit 2. 🎯 서버 라즈베리 파이 4 구축
+
+이번 시간에는 16개의 피코 노드에서 보내오는 데이터를 한 자리에 받아 주는 **중앙 서버**를 만들어 보겠습니다. 라즈베리 파이 4(Raspberry Pi 4)에 운영체제를 굽고, 우리가 만들어 둔 `server.py`와 `app.py` 두 프로그램이 24시간 365일 자동으로 돌도록 ‘서비스(service)’로 등록합니다. 한 번 셋업해 두면 정전이나 재부팅이 일어나도 라즈베리 파이가 알아서 모든 것을 다시 켭니다.
+
+서버 구축의 핵심은 단순한 명령어가 아니라 ‘**한 번 잘 만들어 두면 잊고 살 수 있게**’ 만드는 일입니다. 우리가 직접 매일 아침마다 서버를 실행할 수는 없습니다. 자동으로 시작되고, 죽으면 자동으로 다시 살아나고, 디스크가 차오르기 전에 알아서 백업이 돌게 만들어야 합니다. 이 모든 일을 리눅스(Linux)의 `systemd`와 `cron`이라는 두 가지 도구가 맡아 줍니다.
+
+또 한 가지, 이 단원에서 배우는 것은 ‘**서버라는 컴퓨터의 시점**’입니다. 우리는 평소에 늘 ‘요청하는 쪽’(클라이언트)이었습니다. 브라우저로 웹 사이트를 열 때, 메신저로 사진을 보낼 때, 우리는 항상 누군가에게 부탁을 하는 쪽이었습니다. 이번에는 ‘부탁을 받아 답해 주는 쪽’의 자리에 한 번 앉아 봅니다. 16개의 피코가 30초마다 문을 두드릴 때, 서버는 어떤 방식으로 그 노크를 듣고, 메모하고, 저장해 두는지를 손으로 익히게 됩니다.
+
+## 이번 시간의 미션
+
+작업이 끝났을 때 다음 다섯 가지가 모두 사실이어야 합니다.
+
+1. 라즈베리 파이 4가 학교 망에서 **고정 IP**(예: `192.168.0.10`)로 잡힌다.
+2. `curl http://localhost:8000/health` 응답이 `{"ok":true}` 이다.
+3. `sudo systemctl status climate365` 결과가 `active (running)` 이다.
+4. 라즈베리 파이를 재부팅한 뒤에도 위 두 가지가 자동으로 그대로 돌아온다.
+5. 외장 USB 또는 별도 폴더에 매일 새벽 백업 파일이 자동으로 쌓인다.
+
+> **🧠 컴퓨팅 사고력 · ‘잊고 살 수 있는 시스템’의 다섯 가지 조건**
+>
+> 1. **자동 시작**: 정전 후 전원이 들어오면 시스템이 알아서 켜져야 합니다(`systemd enable`).
+> 2. **자동 복구**: 어떤 이유로 죽어도 알아서 다시 살아나야 합니다(`Restart=always`).
+> 3. **자동 기록**: 모든 동작은 로그로 남아 사후에 추적이 가능해야 합니다(`journalctl`).
+> 4. **자동 백업**: 디스크가 망가져도 데이터는 살아남아야 합니다(`cron`).
+> 5. **자동 알림**: 무엇이 잘못되었을 때 사람이 알아챌 수 있어야 합니다(Unit 4의 대시보드 🚨).
+
+> 📷 **그림 2-1** · 라즈베리 파이 4와 부속품 전체 세트
+> *촬영 메모 — Pi 4 본체, microSD 카드, USB-C 어댑터, microHDMI 케이블, 알루미늄 케이스가 한 컷에 들어오게 펼친 모습.*
+
+---
+
+## 준비물 확인
+
+| 부품 | 비고 |
+|---|---|
+| Raspberry Pi 4 (4GB) | 정품. 8GB도 가능하지만 4GB로 충분 |
+| microSD 64GB | Sandisk High Endurance 같은 ‘산업용’ 권장 |
+| USB-C 5V/3A 어댑터 | Pi 4 정품급 |
+| microHDMI → HDMI 케이블 | 첫 부팅 한 번만 사용 |
+| 모니터 + USB 키보드 | 초기 설정만 (이후 SSH로 작업) |
+| LAN 케이블 | 학교 망에 ‘유선’ 연결을 강력히 권장 |
+| 별도 컴퓨터 | Raspberry Pi Imager를 돌리기 위한 |
+
+> **Tip 무선보다 유선**
+>
+> 1. 라즈베리 파이의 WiFi는 가능은 하지만, 24시간 가동 환경에서는 유선이 압도적으로 안정적입니다.
+> 2. WiFi가 한 번 끊기면 서비스가 살아 있어도 16노드가 모두 데이터 전송에 실패합니다.
+> 3. 학교 망의 빈 LAN 콘센트 하나를 미리 확보해 두면 좋습니다.
+
+---
+
+## 단계 1 — 운영체제 굽기
+
+서버는 GUI(그래픽 화면)가 필요 없습니다. 마우스로 클릭할 일이 거의 없는 24/7 백그라운드 작업이기 때문입니다. 그래서 우리는 ‘Lite(라이트)’ 버전을 골라, 가볍고 메모리를 적게 쓰는 시스템을 만듭니다.
+
+### 1.1 Raspberry Pi Imager 내려받기
+
+```
+https://www.raspberrypi.com/software/
+```
+
+본인 컴퓨터의 운영체제에 맞춰 설치합니다.
+
+### 1.2 OS 굽기 세 가지 선택
+
+Imager를 실행한 뒤 다음을 선택합니다.
+
+| 선택 | 값 |
+|---|---|
+| CHOOSE DEVICE | Raspberry Pi 4 |
+| CHOOSE OS | Raspberry Pi OS (other) → **Raspberry Pi OS Lite (64-bit)** |
+| CHOOSE STORAGE | 연결된 microSD |
+
+‘NEXT’ 또는 ‘Continue’를 누르면 ‘**Edit Settings**’ 또는 ‘**OS Customization**’ 다이얼로그가 뜹니다. 이 화면이 이번 단계의 핵심입니다.
+
+### 1.3 ⭐ 사전 설정 입력 (반드시)
+
+이 단계에서 모니터·키보드 없이도 SSH로 바로 접속할 수 있도록, 미리 설정을 박아 둡니다.
+
+**General 탭**
+
+| 항목 | 값 |
+|---|---|
+| Set hostname | `climate365` |
+| Set username and password | `pi` / 안전한 패스워드 |
+| Configure wireless LAN | 유선을 쓸 거면 생략 가능 |
+| Set locale settings | Time zone: Asia/Seoul, Keyboard: kr 또는 us |
+
+**Services 탭**
+
+| 항목 | 값 |
+|---|---|
+| Enable SSH | ✅ 체크 |
+| 인증 방식 | Use password authentication |
+
+**Save → Yes → YES** 를 차례로 누르면 microSD 굽기가 시작됩니다(10~15분).
+
+> 📷 **그림 2-2** · Raspberry Pi Imager의 OS Customization 화면
+> *촬영 메모 — Hostname, Username, SSH 체크박스가 잘 보이는 다이얼로그 캡처.*
+
+---
+
+## 단계 2 — 첫 부팅
+
+### 2.1 케이블 연결
+
+microSD를 Pi 4에 끼우고, 모니터(microHDMI는 HDMI0 포트), 키보드, LAN 케이블, 전원 어댑터를 차례로 꽂습니다. 어댑터를 마지막에 꽂는 순서를 지키면 부팅이 깔끔합니다.
+
+### 2.2 자동 부팅
+
+화면에 부팅 로그가 흐른 뒤 자동으로 1~2번 재부팅됩니다. 마지막에 다음 프롬프트가 나타나면 로그인합니다.
+
+```
+climate365 login: pi
+Password:
+```
+
+### 2.3 IP 확인
+
+```bash
+hostname -I
+# 출력 예: 192.168.0.123
+```
+
+이 IP를 어딘가에 적어 둡니다. 이게 곧 ‘서버 IP’가 됩니다.
+
+> **🔬 가설을 세워 봅시다 · IP는 다시 부팅해도 같을까**
+>
+> 1. 학교 망이 DHCP라면, 라즈베리 파이가 한 번 꺼졌다가 다시 켜질 때 같은 IP를 받을 수 있을까요?
+> 2. 답은 ‘**보장되지 않는다**’입니다. 그래서 우리는 단계 5에서 고정 IP를 손수 박아 둡니다.
+> 3. ‘IP가 바뀌면 Pico 16대가 모두 서버를 못 찾는다’ — 이 한 줄의 진실이 이번 단계 전체의 동기입니다.
+
+---
+
+## 단계 3 — SSH로 접속
+
+이 시점부터는 모니터·키보드를 분리해도 좋습니다. 본인 컴퓨터의 터미널에서 다음 한 줄로 접속합니다.
+
+```bash
+ssh pi@192.168.0.123
+```
+
+첫 접속에서는 `yes`를 입력해 호스트 키를 받아 두고, 패스워드를 입력해 로그인합니다. 이후 모든 작업은 SSH 세션 안에서 이루어집니다.
+
+> 📷 **그림 2-3** · 본인 컴퓨터 터미널에서 라즈베리 파이로 SSH 접속한 첫 화면
+> *촬영 메모 — `pi@climate365:~ $` 프롬프트가 잘 보이게.*
+
+---
+
+## 단계 4 — 시스템 업데이트와 기본 패키지
+
+#### 코드 2-1
+
+```bash
+sudo apt update
+sudo apt upgrade -y
+sudo apt install -y python3-venv python3-pip git sqlite3 ufw htop
+```
+
+이 한 묶음으로 다음이 한 번에 설치됩니다.
+
+| 패키지 | 역할 |
+|---|---|
+| `python3-venv` | 파이썬 가상환경(virtual environment) 생성 |
+| `python3-pip` | 파이썬 패키지 설치 도구 |
+| `git` | 소스 코드 관리 |
+| `sqlite3` | 데이터베이스 직접 조회 도구 |
+| `ufw` | 방화벽(Uncomplicated Firewall) |
+| `htop` | 시스템 상태 모니터링 |
+
+설치는 보통 5~10분이 걸립니다.
+
+---
+
+## 단계 5 — 고정 IP 설정 ⭐
+
+여기서부터가 단계 1~4보다 훨씬 중요합니다. 16개의 피코는 `secrets.py`의 `SERVER_URL`에 우리가 정한 IP를 박아 둡니다. 만약 라즈베리 파이의 IP가 어느 날 바뀐다면, 16대 모두가 한 번에 ‘서버 못 찾음’ 상태에 빠집니다. 그래서 고정 IP는 ‘있으면 좋은 것’이 아니라 ‘없으면 시스템이 무너지는 것’입니다.
+
+### 5.1 현재 인터페이스 이름 확인
+
+```bash
+nmcli con show
+```
+
+다음과 비슷한 출력이 보입니다.
+
+```
+NAME                UUID                                  TYPE      DEVICE
+Wired connection 1  abc...                                ethernet  eth0
+```
+
+`Wired connection 1`이 우리가 쓰는 유선 연결 이름입니다.
+
+### 5.2 정적 IP 박기
+
+학교 망의 대역이 `192.168.0.x`이고, 우리가 서버에 부여한 IP가 `192.168.0.10`이라고 가정합니다(관리자가 본인이라면 직접 결정).
+
+#### 코드 2-2
+
+```bash
+sudo nmcli con mod "Wired connection 1" \
+    ipv4.addresses 192.168.0.10/24 \
+    ipv4.gateway 192.168.0.1 \
+    ipv4.dns "8.8.8.8 1.1.1.1" \
+    ipv4.method manual
+
+sudo systemctl restart NetworkManager
+```
+
+### 5.3 적용 확인
+
+```bash
+ip addr show eth0
+ping -c 3 8.8.8.8
+```
+
+`eth0`의 `inet`이 `192.168.0.10/24`로 잡혔고, 핑이 통과되면 성공입니다. SSH 세션이 끊기면 새 IP로 다시 접속합니다.
+
+```bash
+ssh pi@192.168.0.10
+```
+
+> **Tip ‘고정 IP’는 결국 ‘약속’**
+>
+> 1. 라즈베리 파이가 매번 같은 IP를 받겠다고 ‘선언’한 셈입니다.
+> 2. 학교 망 관리자가 DHCP 예약을 따로 잡아 줄 수도 있는데, 효과는 같습니다. 다만 ‘서버 쪽’에서 박아 두는 편이 학교 망 정책 변경에 덜 흔들립니다.
+
+---
+
+## 단계 6 — 프로젝트 파일 복사
+
+본인 컴퓨터(SSH 세션이 아니라 본인 PC의 터미널)에서 프로젝트 폴더를 통째로 라즈베리 파이로 복사합니다.
+
+#### 코드 2-3
+
+```bash
+scp -r ~/greatsong-project/climate-action-365 pi@192.168.0.10:/home/pi/
+```
+
+복사 후 라즈베리 파이에서 다음이 보이는지 확인합니다.
+
+```bash
+ls /home/pi/climate-action-365/prototype/server/
+# server.py  requirements.txt  README.md
+```
+
+---
+
+## 단계 7 — 가상환경과 의존성
+
+‘가상환경(virtual environment)’이란 프로젝트마다 다른 라이브러리 버전을 격리해 두는 ‘방’입니다. 한 라즈베리 파이 안에 여러 프로젝트가 살아도 서로 간섭하지 않도록 합니다.
+
+#### 코드 2-4
+
+```bash
+cd /home/pi/climate-action-365/prototype/server
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+`pip install`은 약 2~3분이 걸립니다. 설치 확인은 다음 한 줄로 합니다.
+
+```bash
+pip list | grep -E "fastapi|uvicorn|pydantic"
+```
+
+세 패키지가 모두 표시되면 설치 성공입니다.
+
+---
+
+## 단계 8 — 서버 수동 실행 (테스트)
+
+본격적인 서비스 등록 전에, 수동으로 서버를 한 번 돌려 동작을 확인합니다.
+
+#### 코드 2-5
+
+```bash
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+##### 실행 결과
+
+```
+INFO:     Started server process [1234]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+```
+
+이 네 줄이 보이면 서버가 살아 있는 것입니다. 본인 컴퓨터 브라우저에서 다음 세 주소를 차례로 열어 봅니다.
+
+| 주소 | 기대 결과 |
+|---|---|
+| `http://192.168.0.10:8000/health` | `{"ok":true}` |
+| `http://192.168.0.10:8000/docs` | Swagger UI(자동 생성된 API 문서) |
+| `http://192.168.0.10:8000/nodes` | `[]` (아직 노드가 없음) |
+
+세 번째 응답이 빈 배열인 이유는, 아직 어떤 피코도 데이터를 보내지 않았기 때문입니다. Unit 1을 마친 파일럿 노드가 살아 있다면 카드 한 장이 들어 있어야 합니다. `Ctrl+C`로 일단 종료합니다.
+
+> 📷 **그림 2-4** · 브라우저에 표시된 Swagger UI 문서
+> *촬영 메모 — `/docs`에 자동 생성된 FastAPI 문서. POST /reading, GET /readings, GET /nodes가 잘 보이게.*
+
+---
+
+## 단계 9 — systemd 서비스로 등록
+
+`systemd`는 리눅스의 ‘시작 매니저’입니다. 어떤 프로그램을 ‘부팅 시 자동 시작’하게 만들고, 죽으면 ‘다시 살아나게’ 만드는 일을 담당합니다.
+
+### 9.1 서비스 파일 작성
+
+```bash
+sudo nano /etc/systemd/system/climate365.service
+```
+
+#### 코드 2-6
+
+```ini
+[Unit]
+Description=Climate Action 365 collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/climate-action-365/prototype/server
+ExecStart=/home/pi/climate-action-365/prototype/server/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+각 줄의 의미를 짧게 짚어 봅니다.
+
+| 줄 | 의미 |
+|---|---|
+| `After=network-online.target` | 네트워크가 살아난 다음에야 시작합니다 |
+| `User=pi` | `pi` 사용자 권한으로 돌립니다 |
+| `WorkingDirectory=` | 작업 디렉터리를 명시합니다 |
+| `ExecStart=` | 가상환경의 `uvicorn`을 절대 경로로 호출합니다 |
+| `Restart=always` | 어떤 이유로 죽어도 다시 시작합니다 |
+| `RestartSec=10` | 다시 시작하기 전에 10초 기다립니다 |
+
+`Ctrl+O` → Enter (저장) → `Ctrl+X` (닫기).
+
+### 9.2 활성화
+
+#### 코드 2-7
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable climate365
+sudo systemctl start climate365
+sudo systemctl status climate365
+```
+
+##### 실행 결과
+
+```
+● climate365.service - Climate Action 365 collector
+     Loaded: loaded (/etc/systemd/system/climate365.service; enabled; preset: enabled)
+     Active: active (running) since ...
+   Main PID: 5678 (uvicorn)
+```
+
+`active (running)`이 보이면 서비스 등록 성공입니다.
+
+### 9.3 재부팅 검증
+
+이번 단원 전체에서 가장 중요한 검증입니다.
+
+```bash
+sudo reboot
+```
+
+1분쯤 기다린 뒤 다시 SSH 접속해 다음을 확인합니다.
+
+```bash
+sudo systemctl status climate365
+curl http://localhost:8000/health
+```
+
+여전히 `active (running)`이고 `{"ok":true}`가 돌아오면, ‘잊고 살 수 있는 시스템’의 첫 번째 조건이 완성된 것입니다.
+
+> **🤖 AI에게 물어보기 · systemd 단위 파일을 만들 때 자주 묻는 다섯 가지**
+>
+> 1. 챗 LLM에 ‘다음 파이썬 스크립트를 systemd 서비스로 만드는 단위 파일을 작성해 주세요. 작업 디렉터리는 …, 가상환경 경로는 …, 자동 재시작 필요’라고 부탁하면 위와 같은 답을 받습니다.
+> 2. 받은 답에서 우리가 반드시 검증할 것 — 경로의 오타, `User`가 맞는지, `Restart=always`가 들어 있는지.
+> 3. 한 번 잘 작성된 단위 파일은 같은 형식으로 ‘대시보드 서비스’에도 그대로 재활용됩니다.
+
+---
+
+## 단계 10 — 대시보드(Streamlit) 등록
+
+대시보드도 정확히 같은 방식으로 서비스화합니다.
+
+### 10.1 의존성 설치
+
+#### 코드 2-8
+
+```bash
+cd /home/pi/climate-action-365/prototype/dashboard
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 10.2 서비스 파일
+
+```bash
+sudo nano /etc/systemd/system/climate365-dashboard.service
+```
+
+#### 코드 2-9
+
+```ini
+[Unit]
+Description=Climate Action 365 dashboard (Streamlit)
+After=climate365.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/climate-action-365/prototype/dashboard
+ExecStart=/home/pi/climate-action-365/prototype/dashboard/venv/bin/streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 10.3 활성화
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable climate365-dashboard
+sudo systemctl start climate365-dashboard
+```
+
+본인 컴퓨터 브라우저에서 다음 주소를 엽니다.
+
+```
+http://192.168.0.10:8501
+```
+
+‘🌱 당곡고 기후행동365 — 교실 환경 대시보드’ 첫 화면이 보이면 성공입니다.
+
+> 📷 **그림 2-5** · Streamlit 대시보드의 첫 화면
+> *촬영 메모 — 브라우저에 표시된 ‘전체 교실’ 탭. PILOT 노드 카드 한 장과 적정/주의/위험 색상 안내가 보이게.*
+
+---
+
+## 단계 11 — 자동 백업
+
+데이터가 쌓인 `data.db` 파일이 microSD와 함께 한 번에 날아가면, 우리가 한 학기 동안 모은 측정값이 모두 사라집니다. 외장 USB로 매일 자동 백업이 돌도록 만들어 둡니다.
+
+### 11.1 외장 USB 마운트
+
+```bash
+lsblk
+sudo mkdir -p /mnt/backup
+sudo mount /dev/sda1 /mnt/backup
+sudo chown pi:pi /mnt/backup
+```
+
+부팅 시 자동 마운트되도록 `/etc/fstab`에도 한 줄 추가해 둡니다.
+
+```bash
+sudo blkid /dev/sda1
+# UUID="..." 확인 후
+echo "UUID=위의UUID /mnt/backup ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+```
+
+### 11.2 cron 작업
+
+```bash
+crontab -e
+```
+
+#### 코드 2-10
+
+```cron
+# 매일 새벽 2시 SQLite 백업
+0 2 * * * cp /home/pi/climate-action-365/prototype/server/data.db /mnt/backup/data-$(date +\%Y\%m\%d).db
+# 30일 지난 백업 자동 삭제
+30 2 * * * find /mnt/backup -name "data-*.db" -mtime +30 -delete
+```
+
+저장하면 cron이 즉시 이 두 줄을 자기 일정표에 추가합니다.
+
+> 📷 **그림 2-6** · 외장 USB의 백업 폴더 목록
+> *촬영 메모 — `ls -lh /mnt/backup/` 명령 출력. `data-20260501.db`, `data-20260502.db` … 형태로 날짜별 파일이 나란히 보이는 화면.*
+
+> **📊 데이터 잠깐 들여다보기 · 디스크는 얼마나 쓰는가**
+>
+> 1. 측정 1건은 약 200바이트입니다. 16노드 × 30초 주기 = 1분에 32건 = 하루 약 9MB.
+> 2. 1년이면 약 3.3GB. 64GB microSD 한 장으로 수 년을 운영할 수 있습니다.
+> 3. 그래도 백업은 합니다. ‘공간이 부족해서’가 아니라 ‘카드가 망가질 수도 있어서’.
+
+---
+
+## 단계 12 — 방화벽 (선택)
+
+학교 망 안쪽이라 외부 위협이 적지만, 기본 위생을 갖춰 둡니다.
+
+#### 코드 2-11
+
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp     # SSH
+sudo ufw allow 8000/tcp   # FastAPI (Pico 수신)
+sudo ufw allow 8501/tcp   # Streamlit 대시보드
+sudo ufw enable
+sudo ufw status verbose
+```
+
+세 포트 외의 들어오는 통신은 모두 차단됩니다.
+
+---
+
+## 🔍 통합 검증 체크리스트
+
+- [ ] `hostname -I`의 결과가 `192.168.0.10`이다
+- [ ] `curl http://localhost:8000/health` → `{"ok":true}`
+- [ ] `sudo systemctl status climate365` → `active (running)`
+- [ ] `sudo systemctl status climate365-dashboard` → `active (running)`
+- [ ] 본인 컴퓨터 브라우저에서 `http://192.168.0.10:8501`이 열린다
+- [ ] `sudo reboot` 후에도 위 다섯 가지가 자동으로 그대로 돌아온다
+- [ ] `crontab -l`에 백업 두 줄이 보인다
+
+## 🛠 수정·확장 미션
+
+1. `sudo journalctl -u climate365 -f`로 실시간 로그를 보는 동안, Unit 1의 파일럿 노드를 한 번 재부팅합니다. 로그에 어떤 줄이 새로 찍히는지 적어 봅니다.
+2. `sqlite3 /home/pi/climate-action-365/prototype/server/data.db`로 들어가 `SELECT COUNT(*) FROM readings;` 를 실행합니다. 한 시간 뒤 다시 같은 명령을 실행해 그 동안 몇 건이 쌓였는지 비교합니다.
+3. `cron` 백업 줄의 `2`를 `*/5`로 바꿔 ‘5분마다 백업’이 실제로 일어나는지 5분 동안 관찰합니다(끝나면 원래대로 되돌립니다).
+
+## 🌟 리터러시 모먼트
+
+> **🧠 컴퓨팅 사고력 · 사람의 일을 시스템에게 맡기기**
+>
+> 1. 우리는 매일 새벽 2시에 일어나서 백업을 누를 수 없습니다. 그래서 `cron`에게 맡깁니다.
+> 2. 우리는 서버가 죽을 때마다 ‘다시 켜기’ 버튼을 누를 수 없습니다. 그래서 `systemd`에게 맡깁니다.
+> 3. ‘사람만이 할 수 있는 일’과 ‘시스템에게 맡길 일’을 잘 구분하는 능력이 곧 시스템 설계 능력입니다.
+
+> **🔬 가설을 세워 봅시다 · 정전 후에 무슨 일이 일어나는가**
+>
+> 1. 라즈베리 파이를 갑자기 USB 어댑터 콘센트에서 뽑아 봅니다. 5분 뒤 다시 꽂으면 서비스가 자동으로 돌아올까요?
+> 2. 가설 — ‘`enable`이 되어 있어서 자동으로 돌아온다.’
+> 3. 실험 — 위 방법으로 확인합니다. 다만 데이터베이스 쓰기가 잘려 데이터가 손상될 수 있다는 점도 한 번 생각해 봅니다(SQLite의 저널링이 보호해 줍니다).
+
+> **🤖 AI에게 물어보기 · ‘이 에러는 무엇인가요?’**
+>
+> 1. `sudo systemctl status climate365`가 `failed`로 나오면 `sudo journalctl -u climate365 -e`의 마지막 30줄을 통째로 챗 LLM에 붙입니다.
+> 2. ‘이 에러의 가장 흔한 원인 세 가지와 각각의 해결책을 알려 주세요’라고 부탁합니다.
+> 3. AI의 답에서 ‘경로 오타’ ‘권한 부족’ ‘의존성 미설치’ 세 가지가 자주 등장합니다. 우리 사례도 거기에 포함되는지 확인합니다.
+
+> **📊 데이터 잠깐 들여다보기 · 로그도 데이터다**
+>
+> 1. `journalctl`이 모아 두는 로그는 그 자체가 시계열 데이터입니다.
+> 2. ‘서비스가 며칠 새 몇 번 죽었는가’ ‘어떤 시간대에 자주 끊겼는가’를 분석하면 시스템의 약점이 드러납니다.
+> 3. 분석팀 학생이 흥미를 느낀다면, `journalctl --since "1 week ago"`로 일주일치 로그를 뽑아 어떤 패턴이 있는지 살펴봅니다.
+
+## 마무리
+
+서버가 살아 있습니다. 16개의 피코가 두드릴 문이 열려 있고, 그 노크를 받아 적을 노트(SQLite)도 준비됐고, 받아 적은 내용을 사람에게 보여 줄 화면(Streamlit)도 띄워 두었습니다. Unit 3에서는 16개의 피코를 한꺼번에 조립해 이 문 앞으로 데려가는 작업을 해 보겠습니다. 한 대를 만든 손은 16대도 만들 수 있습니다. 다만 16번을 손으로 반복하지 않도록, 우리는 ‘한 번에 16개를 다르게 만드는 자동화’를 도구로 익히게 됩니다.
+
+## 연습문제
+
+**1.** `Restart=always`가 없으면 서버가 죽었을 때 어떤 일이 일어나는지 한 문장으로 적습니다.
+
+**2.** `cron`의 `0 2 * * *`이라는 표현을 풀어 봅니다. 분, 시, 일, 월, 요일 다섯 자리는 각각 어떤 뜻인가요?
+
+**3.** 라즈베리 파이의 microSD가 어느 날 망가졌다고 가정합니다. 그동안의 데이터를 복구하기 위해 우리가 의존할 수 있는 한 가지 자원의 이름은 무엇인가요?
+
+**4.** *(도전)* 만약 서버를 라즈베리 파이 대신 학교의 빈 PC로 옮기고 싶다면, 이 단원의 어느 단계가 어떻게 달라져야 할지 두 가지를 적어 봅니다. *(힌트: OS, 자동 시작 방법)*
+
+> 정답은 부록 D에 수록되어 있습니다.
