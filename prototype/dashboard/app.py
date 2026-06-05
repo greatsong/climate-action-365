@@ -293,6 +293,62 @@ with st.sidebar:
     st.header("📅 학교 시간표")
     st.caption(f"오늘은 **{weekday_kr}요일**입니다.")
 
+    # ----- 교시·점심시간 편집 -----
+    with st.expander("⚙️ 교시·점심시간 설정 (학교별 조정)"):
+        from datetime import time as dtime
+
+        def _t(s):
+            h, m = s.split(":")
+            return dtime(int(h), int(m))
+
+        cur = sched.load_config()
+        with st.form("sched_cfg_form", border=False):
+            st.caption("학교 시간표를 본인 학교에 맞게 조정한 뒤 **저장**을 누르세요.")
+
+            st.markdown("**🍱 점심시간**")
+            lc1, lc2 = st.columns(2)
+            l_start = lc1.time_input("시작", value=_t(cur["lunch"][0]),
+                                     key="lunch_start", step=300,
+                                     label_visibility="collapsed")
+            l_end = lc2.time_input("종료", value=_t(cur["lunch"][1]),
+                                   key="lunch_end", step=300,
+                                   label_visibility="collapsed")
+            lc1.caption("점심 시작")
+            lc2.caption("점심 종료")
+
+            st.markdown("**📚 교시 시작·종료**")
+            new_periods = []
+            for s, e, num in cur["periods"]:
+                pc1, pc2, pc3 = st.columns([0.6, 1, 1])
+                pc1.markdown(f"<div style='padding-top:0.5em;font-weight:600;'>"
+                             f"{num}교시</div>", unsafe_allow_html=True)
+                ns = pc2.time_input(f"{num}교시 시작", value=_t(s),
+                                    key=f"p{num}_s", step=300,
+                                    label_visibility="collapsed")
+                ne = pc3.time_input(f"{num}교시 종료", value=_t(e),
+                                    key=f"p{num}_e", step=300,
+                                    label_visibility="collapsed")
+                new_periods.append((ns.strftime("%H:%M"),
+                                    ne.strftime("%H:%M"), num))
+
+            colA, colB = st.columns([3, 1])
+            saved = colA.form_submit_button("💾 저장", type="primary",
+                                            use_container_width=True)
+            reset = colB.form_submit_button("↺ 기본",
+                                            use_container_width=True)
+
+            if saved:
+                sched.save_config(
+                    new_periods,
+                    (l_start.strftime("%H:%M"), l_end.strftime("%H:%M")),
+                )
+                st.success("✅ 저장됨. 다시 로드합니다…")
+                st.rerun()
+            elif reset:
+                sched.reset_config()
+                st.success("✅ 기본값으로 복귀. 다시 로드합니다…")
+                st.rerun()
+
     # 학급별 엑셀 업로드
     sched.load_class_schedule()    # 저장된 파일 자동 로드
     class_sched = sched.get_class_schedule()
@@ -306,14 +362,19 @@ with st.sidebar:
         if df_view is not None:
             st.dataframe(df_view, use_container_width=True, height=280)
     else:
-        st.info("기본 시간표(월~금 1~7교시) 사용 중. 학급별 시간표를 "
-                "업로드하면 학급마다 공강 시간을 자동 인식합니다.")
+        st.info("학교 공통 시간표 사용 중. 학급별 시간표 엑셀을 "
+                "업로드하면 학급마다 공강 시간도 자동 인식합니다.")
         rows = sched.schedule_as_table()
         for r in rows:
             is_now = (current_class == r["교시"])
+            is_lunch = (r["교시"] == "🍱 점심")
             prefix = "▶️ " if is_now else "  "
-            style = ("color:#2ecc71;font-weight:700;"
-                     if is_now else "color:#666;")
+            if is_now:
+                style = "color:#2ecc71;font-weight:700;"
+            elif is_lunch:
+                style = "color:#f39c12;font-weight:600;"
+            else:
+                style = "color:#666;"
             st.markdown(
                 f'<div style="{style}font-size:0.92em;padding:0.15em 0;">'
                 f'{prefix}<b>{r["교시"]}</b> · {r["시간"]}</div>',
@@ -462,114 +523,110 @@ with tab1:
     c7.metric("💡 평균 조도",
               f"{np.mean(all_lt):.0f}%" if all_lt else "—")
 
-    # ---------- 학년별 그리드 (현재값 + 5칸 추세 띠) ----------
+    # ---------- 학년별 반응형 그리드 (현재값 + 5칸 추세 띠) ----------
     st.markdown("###  ")
     for grade in GRADES:
         st.markdown(
             f'<div class="grade-header">📚 {grade}학년</div>',
             unsafe_allow_html=True,
         )
-        cols = st.columns(ROOMS_PER_GRADE)
+
+        cards = ['<div class="room-grid">']
         for room in range(1, ROOMS_PER_GRADE + 1):
             node_id = f"{grade}-{room}"
             node = node_by_id.get(node_id)
-            with cols[room - 1]:
-                if node is None:
-                    st.markdown(
-                        f'<div class="room-card empty">'
-                        f'<div class="room-id">{node_id}</div>'
-                        f'<div class="room-empty">미설치</div></div>',
-                        unsafe_allow_html=True,
-                    )
-                    continue
 
-                stale = is_stale(node["last_seen"])
-                latest = node.get("latest") or {}
-
-                # 노드 30분 데이터
-                if (df_recent_by_node is not None
-                        and node_id in df_recent_by_node.groups):
-                    df_n = df_recent_by_node.get_group(node_id)
-                else:
-                    df_n = pd.DataFrame()
-
-                # 라벨들 (환기·낭비)
-                tags = []
-                if needs_ventilation(latest):
-                    tags.append('<span class="room-tag vent">💨 환기</span>')
-                wastes = sched.detect_waste(latest, now_kst,
-                                            node_id=node_id)
-                for icon, label in wastes:
-                    tags.append(
-                        f'<span class="room-tag waste">{icon} {label}</span>'
-                    )
-                vent_label = "".join(tags)
-
-                # 카드 클래스: stale / danger / normal
-                card_danger = False
-                for m in ("temperature", "humidity", "light"):
-                    v = latest.get(m)
-                    if v is None: continue
-                    _, lvl = status_for(m, v)
-                    if lvl in ("높음", "낮음"):
-                        card_danger = True
-                        break
-
-                if stale:
-                    cls = "room-card stale"
-                elif card_danger:
-                    cls = "room-card danger"
-                else:
-                    cls = "room-card"
-
-                # 라이브 도트
-                if stale:
-                    dot = ""
-                    badge = "🚨 "
-                else:
-                    dot_cls = "live-dot danger" if card_danger else "live-dot"
-                    dot = f'<span class="{dot_cls}"></span>'
-                    badge = ""
-
-                html = (
-                    f'<div class="{cls}">'
-                    f'<div class="room-id">'
-                    f'<span>{dot}{badge}{node_id}</span>{vent_label}</div>'
+            if node is None:
+                cards.append(
+                    f'<div class="room-card empty">'
+                    f'<div class="room-id"><span class="nid">{node_id}</span></div>'
+                    f'<div class="room-empty">미설치</div></div>'
                 )
+                continue
 
-                for label, val, fmt, unit, metric in [
-                    ("T",  latest.get("temperature"), "{:.1f}", "°", "temperature"),
-                    ("H",  latest.get("humidity"),    "{:.0f}", "%", "humidity"),
-                    ("L",  latest.get("light"),       "{:.0f}", "%", "light"),
-                ]:
-                    color, lvl = status_for(metric, val)
-                    cells = trend_colors(df_n, metric)
-                    # 마지막 칸(현재 시점) = .live 펄스. color는 셀 자체 색.
-                    strip_parts = []
-                    for i, c in enumerate(cells):
-                        if i == len(cells) - 1 and c != "#e8e8e8":
-                            strip_parts.append(
-                                f'<span class="trend-cell live" '
-                                f'style="background:{c};color:{c}"></span>'
-                            )
-                        else:
-                            strip_parts.append(
-                                f'<span class="trend-cell" '
-                                f'style="background:{c}"></span>'
-                            )
-                    strip = ''.join(strip_parts)
-                    val_s = fmt.format(val) if val is not None else "—"
-                    val_cls = "metric-val danger" if lvl in ("높음", "낮음") else "metric-val"
-                    html += (
-                        f'<div class="metric-row">'
-                        f'<span class="metric-lab">{label}</span>'
-                        f'<span class="{val_cls}" style="color:{color}">{val_s}</span>'
-                        f'<span class="metric-unit">{unit}</span>'
-                        f'<span class="trend-strip">{strip}</span>'
-                        f'</div>'
-                    )
-                html += '</div>'
-                st.markdown(html, unsafe_allow_html=True)
+            stale = is_stale(node["last_seen"])
+            latest = node.get("latest") or {}
+
+            if (df_recent_by_node is not None
+                    and node_id in df_recent_by_node.groups):
+                df_n = df_recent_by_node.get_group(node_id)
+            else:
+                df_n = pd.DataFrame()
+
+            # 태그들 (헤더 옆이 아닌 별도 줄)
+            tag_parts = []
+            if needs_ventilation(latest):
+                tag_parts.append('<span class="room-tag vent">💨 환기</span>')
+            for icon, label in sched.detect_waste(latest, now_kst,
+                                                  node_id=node_id):
+                tag_parts.append(
+                    f'<span class="room-tag waste">{icon} {label}</span>'
+                )
+            tags_html = (f'<div class="room-tags">{"".join(tag_parts)}</div>'
+                         if tag_parts else "")
+
+            card_danger = any(
+                status_for(m, latest.get(m))[1] in ("높음", "낮음")
+                for m in ("temperature", "humidity", "light")
+                if latest.get(m) is not None
+            )
+            if stale:
+                cls = "room-card stale"
+            elif card_danger:
+                cls = "room-card danger"
+            else:
+                cls = "room-card"
+
+            if stale:
+                dot = ""
+                badge = "🚨 "
+            else:
+                dot_cls = "live-dot danger" if card_danger else "live-dot"
+                dot = f'<span class="{dot_cls}"></span>'
+                badge = ""
+
+            parts = [
+                f'<div class="{cls}">',
+                f'<div class="room-id">{dot}'
+                f'<span class="nid">{badge}{node_id}</span></div>',
+                tags_html,
+            ]
+
+            for label, val, fmt, unit, metric in [
+                ("T", latest.get("temperature"), "{:.1f}", "°", "temperature"),
+                ("H", latest.get("humidity"),    "{:.0f}", "%", "humidity"),
+                ("L", latest.get("light"),       "{:.0f}", "%", "light"),
+            ]:
+                color, lvl = status_for(metric, val)
+                cells = trend_colors(df_n, metric)
+                strip_parts = []
+                for i, c in enumerate(cells):
+                    if i == len(cells) - 1 and c != "#e8e8e8":
+                        strip_parts.append(
+                            f'<span class="trend-cell live" '
+                            f'style="background:{c};color:{c}"></span>'
+                        )
+                    else:
+                        strip_parts.append(
+                            f'<span class="trend-cell" style="background:{c}"></span>'
+                        )
+                strip = ''.join(strip_parts)
+                val_s = fmt.format(val) if val is not None else "—"
+                val_cls = ("metric-val danger" if lvl in ("높음", "낮음")
+                           else "metric-val")
+                parts.append(
+                    f'<div class="metric-row">'
+                    f'<span class="metric-lab">{label}</span>'
+                    f'<span class="{val_cls}" style="color:{color}">{val_s}</span>'
+                    f'<span class="metric-unit">{unit}</span>'
+                    f'<span class="trend-strip">{strip}</span>'
+                    f'</div>'
+                )
+            parts.append('</div>')
+            cards.append("".join(parts))
+
+        cards.append('</div>')
+        st.markdown("".join(cards), unsafe_allow_html=True)
 
     # 5칸 추세 띠 범례
     st.caption(

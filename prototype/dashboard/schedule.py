@@ -1,43 +1,40 @@
 """
-학급별 시간표 + 에너지 낭비 임계값.
+학교 시간표 + 학급별 엑셀 시간표 + 에너지 낭비 임계값.
 
-두 가지 시간표 모드를 지원합니다:
+시간 정보 흐름:
+1. 기본값: SCHEDULE_DEFAULT (이 파일 상단)
+2. 사용자가 사이드바에서 편집 → schedule_config.json 저장
+3. 학급별로 다른 시간표는 schedule_data.xlsx 업로드
 
-(1) 기본 학교 시간표 — SCHEDULE_DEFAULT
-    학교 전체가 같은 시간 운영(1~7교시) 가정.
-
-(2) 학급별 엑셀 시간표 — 사이드바에서 업로드 가능
-    행=학급(예 '1-1'), 열=요일+교시(예 '월1', '월2', ..., '금7').
-    셀에 과목명이 있으면 그 시간에 수업, 빈 셀이면 공강(비수업).
-
-학급별 시간표가 업로드되면 그 데이터가 우선이고,
-업로드된 학급에 없으면 SCHEDULE_DEFAULT로 fallback.
-
-학교마다 시간이 다르면 이 파일의 SCHEDULE_DEFAULT를 편집하세요.
-시간은 KST(한국 표준시) 'HH:MM' 문자열.
+런타임 우선순위: 학급별 엑셀 > config.json > SCHEDULE_DEFAULT
 """
 
+import json
 from pathlib import Path
 
 import pandas as pd
 
 
-# ---------- 기본 시간표 (월~금, 1~7교시) ----------
-SCHEDULE_DEFAULT = {
-    "weekdays": [0, 1, 2, 3, 4],         # 0=월 ... 4=금
-    "periods": [
-        # (시작, 끝, 라벨, 교시번호)
-        ("08:50", "09:40", "1교시", 1),
-        ("09:50", "10:40", "2교시", 2),
-        ("10:50", "11:40", "3교시", 3),
-        ("11:50", "12:40", "4교시", 4),
-        # 점심 12:40~13:30 — 비수업
-        ("13:30", "14:20", "5교시", 5),
-        ("14:30", "15:20", "6교시", 6),
-        ("15:30", "16:20", "7교시", 7),
-    ],
-}
+SCHEDULE_DIR = Path(__file__).resolve().parent
+CONFIG_FILE = SCHEDULE_DIR / "schedule_config.json"
 
+
+# ---------- 기본값 (점심 12:20~13:10) ----------
+SCHEDULE_DEFAULT = {
+    "weekdays": [0, 1, 2, 3, 4],     # 월~금
+    "periods": [
+        # (시작, 끝, 교시번호)
+        ("08:50", "09:40", 1),
+        ("09:50", "10:40", 2),
+        ("10:50", "11:40", 3),
+        ("11:30", "12:20", 4),
+        # 점심 12:20~13:10 — 비수업
+        ("13:10", "14:00", 5),
+        ("14:10", "15:00", 6),
+        ("15:10", "16:00", 7),
+    ],
+    "lunch": ("12:20", "13:10"),
+}
 
 # ---------- 에너지 낭비 임계값 ----------
 LIGHT_ON_THRESHOLD = 40        # %
@@ -47,43 +44,77 @@ SUMMER_MONTHS = {5, 6, 7, 8, 9}
 WINTER_MONTHS = {11, 12, 1, 2, 3}
 
 
+# ---------- 시간 설정 JSON (런타임 우선) ----------
+def load_config():
+    """schedule_config.json이 있으면 그 시간표 반환, 없으면 DEFAULT."""
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            return {
+                "weekdays": data.get("weekdays", SCHEDULE_DEFAULT["weekdays"]),
+                "periods": [
+                    (p["start"], p["end"], int(p["num"]))
+                    for p in data["periods"]
+                ],
+                "lunch": (data["lunch"]["start"], data["lunch"]["end"]),
+            }
+        except Exception:
+            pass
+    return SCHEDULE_DEFAULT
+
+
+def save_config(periods, lunch, weekdays=None):
+    """schedule_config.json 저장.
+    periods: list of (start, end, num); lunch: (start, end)."""
+    data = {
+        "weekdays": weekdays or [0, 1, 2, 3, 4],
+        "periods": [{"start": s, "end": e, "num": n} for s, e, n in periods],
+        "lunch": {"start": lunch[0], "end": lunch[1]},
+    }
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return data
+
+
+def reset_config():
+    """schedule_config.json 삭제 → DEFAULT로 복귀."""
+    if CONFIG_FILE.exists():
+        CONFIG_FILE.unlink()
+
+
 # ---------- 학급별 엑셀 시간표 ----------
 WEEKDAY_KR_TO_INT = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4,
                      "토": 5, "일": 6}
 
-# 자동 탐색 후보 (사이드바 업로드 시 이 이름으로 저장)
-SCHEDULE_DIR = Path(__file__).resolve().parent
 SCHEDULE_FILE_CANDIDATES = [
     SCHEDULE_DIR / "schedule_data.xlsx",
     SCHEDULE_DIR / "schedule_data.csv",
 ]
 
-# 모듈 캐시: {학급: {(weekday, period): 과목명}}
 _class_schedule_cache = None
 _class_schedule_path = None
 
 
 def _parse_col_name(col):
-    """엑셀 컬럼명 '월1' → (weekday=0, period=1). 실패 시 (None, None)."""
+    """'월1' → (0, 1). 실패 시 (None, None)."""
     if col is None:
         return None, None
     s = str(col).strip()
     if len(s) < 2:
         return None, None
     wd_char = s[0]
-    period_str = s[1:]
     if wd_char not in WEEKDAY_KR_TO_INT:
         return None, None
     try:
-        period = int(period_str)
+        period = int(s[1:])
     except ValueError:
         return None, None
     return WEEKDAY_KR_TO_INT[wd_char], period
 
 
 def load_class_schedule(file_path=None, force=False):
-    """엑셀 또는 CSV에서 학급별 시간표 로드 → 모듈 캐시.
-    Returns: dict[학급][(weekday, period)] = 과목명(빈문자 = 공강)"""
+    """엑셀/CSV → 학급별 시간표 dict 캐시."""
     global _class_schedule_cache, _class_schedule_path
 
     if file_path is None:
@@ -134,47 +165,41 @@ def load_class_schedule(file_path=None, force=False):
 
 
 def get_class_schedule():
-    """현재 로드된 학급별 시간표를 반환."""
     if _class_schedule_cache is None:
         load_class_schedule()
     return _class_schedule_cache or {}
 
 
 # ---------- 시간 판단 API ----------
-def current_period(dt, schedule=None):
-    """dt(datetime KST)가 어느 교시인지. 수업 중이면 라벨, 아니면 None."""
-    if schedule is None:
-        schedule = SCHEDULE_DEFAULT
-    if dt.weekday() not in schedule["weekdays"]:
-        return None
-    hm = dt.strftime("%H:%M")
-    for start, end, label, _ in schedule["periods"]:
-        if start <= hm < end:
-            return label
-    return None
-
-
 def current_period_number(dt, schedule=None):
-    """현재 교시 번호(1~7) 또는 None."""
+    """현재 교시 번호(1~7) 또는 None. 점심시간은 None."""
     if schedule is None:
-        schedule = SCHEDULE_DEFAULT
+        schedule = load_config()
     if dt.weekday() not in schedule["weekdays"]:
         return None
     hm = dt.strftime("%H:%M")
-    for start, end, _, num in schedule["periods"]:
+    # 점심시간 우선 체크 (점심 = 비수업)
+    lunch = schedule.get("lunch")
+    if lunch and lunch[0] <= hm < lunch[1]:
+        return None
+    for start, end, num in schedule["periods"]:
         if start <= hm < end:
             return num
     return None
 
 
+def current_period(dt, schedule=None):
+    """현재 교시 라벨('3교시') 또는 None."""
+    num = current_period_number(dt, schedule)
+    return f"{num}교시" if num else None
+
+
 def is_class_time(dt, schedule=None):
-    """기본 학교 시간표 기준 수업 시간인가?"""
-    return current_period(dt, schedule) is not None
+    return current_period_number(dt, schedule) is not None
 
 
 def is_class_time_for_node(dt, node_id):
-    """학급별 시간표를 보고 이 학급이 지금 수업 중인지.
-    학급별 시간표가 없으면 기본 시간표로 fallback."""
+    """학급별 엑셀 시간표 우선 적용."""
     cs = get_class_schedule()
     if node_id and node_id in cs:
         wd = dt.weekday()
@@ -182,19 +207,14 @@ def is_class_time_for_node(dt, node_id):
         if period_num is None:
             return False
         cell = cs[node_id].get((wd, period_num), "")
-        # 셀에 과목명이 있으면 수업 중, 비어 있으면 공강
         return bool(cell)
     return is_class_time(dt)
 
 
 # ---------- 에너지 낭비 감지 ----------
 def detect_waste(latest, current_dt, node_id=None):
-    """비수업 시간 에너지 낭비 의심 감지.
-    Returns: list of (icon, label)."""
     if is_class_time_for_node(current_dt, node_id):
         return []
-
-    cs = get_class_schedule()
     is_weekend = current_dt.weekday() >= 5
 
     out = []
@@ -212,22 +232,25 @@ def detect_waste(latest, current_dt, node_id=None):
         elif month in WINTER_MONTHS and temp >= HEATER_TEMP_THRESHOLD:
             label = "난방 ON" if not is_weekend else "난방(주말)"
             out.append(("🔥", label))
-
     return out
 
 
 # ---------- 보조 ----------
 def schedule_as_table(schedule=None):
-    """기본 시간표를 표 형태로."""
+    """시간표를 표 형태로. 점심시간도 한 줄 포함."""
     if schedule is None:
-        schedule = SCHEDULE_DEFAULT
-    return [{"교시": label, "시간": f"{start} ~ {end}"}
-            for start, end, label, _ in schedule["periods"]]
+        schedule = load_config()
+    rows = []
+    for start, end, num in schedule["periods"]:
+        rows.append({"교시": f"{num}교시", "시간": f"{start} ~ {end}"})
+        # 4교시 다음에 점심 한 줄 끼우기 (있다면)
+        lunch = schedule.get("lunch")
+        if lunch and num == 4:
+            rows.append({"교시": "🍱 점심", "시간": f"{lunch[0]} ~ {lunch[1]}"})
+    return rows
 
 
 def class_schedule_for_node(node_id):
-    """특정 학급의 시간표 (요일×교시 표 형태로).
-    Returns: DataFrame index=교시(1~7), columns=요일(월~금), values=과목명."""
     cs = get_class_schedule()
     if not cs or node_id not in cs:
         return None
@@ -242,8 +265,6 @@ def class_schedule_for_node(node_id):
 
 
 def make_template_excel(node_ids=None, path=None):
-    """업로드용 빈 시간표 엑셀 템플릿 생성.
-    학급은 1-1~1-8, 2-1~2-8 (당곡고 기본)."""
     if node_ids is None:
         node_ids = [f"{g}-{r}" for g in (1, 2) for r in range(1, 9)]
     cols = ["학급"]

@@ -2,3 +2,4 @@
 *.xls
 *.csv
 !schedule_template.xlsx
+schedule_config.json
