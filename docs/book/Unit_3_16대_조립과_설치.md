@@ -104,34 +104,50 @@ log("MAC: {}".format(mac))
 [12420] MAC: 28:cd:c1:0e:5f:42
 ```
 
-### 3.2 16대 MAC 일괄 수집 절차
+### 3.2 Thonny로 16대 MAC 일괄 수집 — 4줄 붙여넣기
 
-본인 컴퓨터의 터미널에서 `mpremote`라는 도구를 한 번만 설치해 둡니다.
+가장 단순한 길은 **Thonny에서 보드를 차례로 USB에 꽂으면서, 셸에 다음 4줄을 한 번에 붙여 넣고 나오는 MAC을 매핑표에 옮겨 적는 것**입니다. 별도 도구 설치도 필요 없고, Thonny가 보드 USB만 꽂으면 자동으로 연결해 줍니다.
 
-```bash
-pip install mpremote
-```
+#### 코드 3-2 — Thonny 셸에 붙여 넣어 한 번에 실행
 
-이후 각 피코를 USB로 연결하면서 다음 한 줄을 실행합니다.
-
-#### 코드 3-2
-
-```bash
-mpremote exec "
+```python
 import network, ubinascii
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
 print(ubinascii.hexlify(wlan.config('mac'), ':').decode())
-"
 ```
 
 ##### 실행 결과
 
 ```
-28:cd:c1:0e:5f:42
+88:a2:9e:12:1a:da
 ```
 
-이 출력값을 매핑표의 해당 행에 옮겨 적습니다. 16대 모두 끝나면 매핑표의 MAC 열이 채워집니다.
+이 한 줄을 매핑표의 ‘MAC 주소’ 열에 옮겨 적습니다. 그런 다음 USB를 다음 보드로 옮겨 꽂고 Thonny가 자동 재연결되면 같은 4줄을 다시 붙여 넣어 실행합니다. 16대 모두 끝나면 매핑표의 MAC 열이 16행 채워집니다.
+
+> **Tip Thonny REPL이 16대 작업에 가장 편한 이유**
+>
+> 1. 보드 USB를 꽂으면 Thonny가 자동으로 보드와 연결됩니다(별도 명령 없음).
+> 2. 셸 창에 4줄을 한 번 복사해 두면, 다음 보드부터는 ↑ 키 한 번이면 같은 명령이 다시 나옵니다.
+> 3. 셸 모드라 한 보드당 5초도 안 걸립니다 — 16대 ≈ 2분.
+
+> **🛠 막힐 때**
+>
+> - **셸이 응답 없음** → 우측 상단 정지(⏹) 한 번 누르고 다시 시도
+> - **다른 보드인데 MAC이 같게 나옴** → 이전 출력값을 보고 있을 수 있음. Thonny에서 ‘Stop/Restart backend’ 한 번 누른 뒤 다시 4줄 실행
+> - **`ImportError: no module named 'network'`** → MicroPython 펌웨어가 PICO2_W용이 아닙니다. Unit 1 단계 1로 돌아가 펌웨어 재플래시
+
+---
+
+#### (대안) 매크/리눅스 터미널에서 `mpremote`로 한 줄
+
+Thonny를 닫고 별도 명령으로 받고 싶다면 — `pip install mpremote` 한 번 설치한 뒤 터미널에서 한 줄:
+
+```bash
+mpremote exec "import network, ubinascii; wlan=network.WLAN(network.STA_IF); wlan.active(True); print(ubinascii.hexlify(wlan.config('mac'), ':').decode())"
+```
+
+⚠️ Thonny가 열려 있으면 보드를 못 잡으니 반드시 Thonny를 종료한 뒤 실행해야 합니다. 대부분의 학생에게는 위의 Thonny 4줄이 더 빠릅니다.
 
 ### 3.3 라벨 부착
 
