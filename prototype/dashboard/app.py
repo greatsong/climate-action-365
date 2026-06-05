@@ -48,25 +48,79 @@ st.markdown("""<style>
 .grade-header{font-size:1.05em;color:#444;font-weight:700;
               border-left:5px solid #2ecc71;padding:0.35em 0.7em;
               margin:1.2em 0 0.5em;background:#f6fbf8;border-radius:3px;}
-.room-card{background:#fff;padding:0.55em 0.45em;border-radius:10px;
-           box-shadow:0 1px 3px rgba(0,0,0,0.07);text-align:left;
-           min-height:9.5em;border:1px solid #eee;}
+
+/* ----- 라이브 카드 ----- */
+.room-card{background:#fff;padding:0.6em 0.5em;border-radius:12px;
+           box-shadow:0 2px 6px rgba(0,0,0,0.06);text-align:left;
+           min-height:9.5em;border:1px solid #f0f0f0;
+           transition:all 0.25s ease;}
+.room-card:hover{box-shadow:0 4px 12px rgba(0,0,0,0.12);
+                 transform:translateY(-2px);border-color:#e0e0e0;}
 .room-card.stale{background:#fff5f5;border:1px solid #fcc;}
 .room-card.empty{background:#fafafa;border:1px dashed #ddd;}
-.room-id{font-size:0.85em;color:#333;font-weight:700;margin-bottom:0.3em;
-         display:flex;justify-content:space-between;align-items:center;}
+.room-card.empty:hover{transform:none;box-shadow:0 2px 6px rgba(0,0,0,0.06);}
+.room-card.danger{border-color:#e74c3c;
+                  box-shadow:0 0 0 1px rgba(231,76,60,0.2),
+                             0 2px 8px rgba(231,76,60,0.15);}
+
+/* ----- 헤더 + 라이브 도트 ----- */
+.room-id{font-size:0.9em;color:#333;font-weight:700;margin-bottom:0.4em;
+         display:flex;justify-content:space-between;align-items:center;gap:0.3em;}
+.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;
+          background:#2ecc71;margin-right:0.3em;vertical-align:middle;
+          box-shadow:0 0 0 0 rgba(46,204,113,0.6);
+          animation:pulse-dot 1.8s ease-in-out infinite;}
+@keyframes pulse-dot {
+  0%   { box-shadow:0 0 0 0 rgba(46,204,113,0.6); opacity:1; }
+  70%  { box-shadow:0 0 0 7px rgba(46,204,113,0);   opacity:0.85; }
+  100% { box-shadow:0 0 0 0 rgba(46,204,113,0);     opacity:1; }
+}
+.live-dot.danger{background:#e74c3c;
+                 box-shadow:0 0 0 0 rgba(231,76,60,0.6);
+                 animation:pulse-dot-danger 1.2s ease-in-out infinite;}
+@keyframes pulse-dot-danger {
+  0%   { box-shadow:0 0 0 0 rgba(231,76,60,0.7); opacity:1; }
+  70%  { box-shadow:0 0 0 8px rgba(231,76,60,0);   opacity:0.85; }
+  100% { box-shadow:0 0 0 0 rgba(231,76,60,0);     opacity:1; }
+}
+
+/* ----- 태그 ----- */
 .room-tag{font-size:0.65em;color:#888;background:#f0f0f0;padding:1px 5px;
           border-radius:8px;font-weight:500;}
-.room-tag.vent{background:#fff3cd;color:#856404;}
+.room-tag.vent{background:#fff3cd;color:#856404;
+               animation:tag-glow 2s ease-in-out infinite;}
+@keyframes tag-glow {
+  0%,100% { background:#fff3cd; }
+  50%     { background:#ffe69c; }
+}
 .room-empty{color:#bbb;font-size:0.8em;padding:2em 0;text-align:center;}
+
+/* ----- 지표 행 ----- */
 .metric-row{display:flex;align-items:center;gap:0.35em;
-            font-size:0.85em;padding:0.1em 0;
+            font-size:0.88em;padding:0.12em 0;
             font-variant-numeric:tabular-nums;}
 .metric-lab{font-size:0.7em;color:#999;font-weight:500;width:1em;}
-.metric-val{font-weight:700;width:3em;text-align:right;}
+.metric-val{font-weight:700;width:3em;text-align:right;
+            transition:color 0.3s ease;}
+.metric-val.danger{animation:val-pulse 1.4s ease-in-out infinite;}
+@keyframes val-pulse {
+  0%,100% { opacity:1; }
+  50%     { opacity:0.55; }
+}
 .metric-unit{font-size:0.7em;color:#aaa;}
-.trend-strip{display:inline-flex;gap:2px;margin-left:0.3em;}
-.trend-cell{width:9px;height:11px;border-radius:2px;}
+
+/* ----- 5칸 추세 띠 (마지막 칸 = 현재 라이브) ----- */
+.trend-strip{display:inline-flex;gap:2px;margin-left:0.3em;align-items:center;}
+.trend-cell{width:9px;height:12px;border-radius:2px;
+            transition:background 0.3s ease;}
+.trend-cell.live{width:11px;height:14px;border-radius:3px;
+                 box-shadow:0 0 0 0 currentColor;
+                 animation:cell-live 1.6s ease-in-out infinite;}
+@keyframes cell-live {
+  0%   { box-shadow:0 0 0 0 currentColor; transform:scale(1); }
+  60%  { box-shadow:0 0 0 4px transparent; transform:scale(1.08); }
+  100% { box-shadow:0 0 0 0 transparent; transform:scale(1); }
+}
 </style>""", unsafe_allow_html=True)
 
 
@@ -311,13 +365,36 @@ with tab1:
                 if needs_ventilation(latest):
                     vent_label = '<span class="room-tag vent">💨 환기</span>'
 
-                cls = "room-card stale" if stale else "room-card"
-                badge = "🚨 " if stale else ""
+                # 카드 클래스: stale / danger / normal
+                card_danger = False
+                for m in ("temperature", "humidity", "light"):
+                    v = latest.get(m)
+                    if v is None: continue
+                    _, lvl = status_for(m, v)
+                    if lvl in ("높음", "낮음"):
+                        card_danger = True
+                        break
+
+                if stale:
+                    cls = "room-card stale"
+                elif card_danger:
+                    cls = "room-card danger"
+                else:
+                    cls = "room-card"
+
+                # 라이브 도트
+                if stale:
+                    dot = ""
+                    badge = "🚨 "
+                else:
+                    dot_cls = "live-dot danger" if card_danger else "live-dot"
+                    dot = f'<span class="{dot_cls}"></span>'
+                    badge = ""
 
                 html = (
                     f'<div class="{cls}">'
                     f'<div class="room-id">'
-                    f'<span>{badge}{node_id}</span>{vent_label}</div>'
+                    f'<span>{dot}{badge}{node_id}</span>{vent_label}</div>'
                 )
 
                 for label, val, fmt, unit, metric in [
@@ -325,16 +402,28 @@ with tab1:
                     ("H",  latest.get("humidity"),    "{:.0f}", "%", "humidity"),
                     ("L",  latest.get("light"),       "{:.0f}", "%", "light"),
                 ]:
-                    color, _ = status_for(metric, val)
-                    strip = ''.join(
-                        f'<span class="trend-cell" style="background:{c}"></span>'
-                        for c in trend_colors(df_n, metric)
-                    )
+                    color, lvl = status_for(metric, val)
+                    cells = trend_colors(df_n, metric)
+                    # 마지막 칸(현재 시점) = .live 펄스. color는 셀 자체 색.
+                    strip_parts = []
+                    for i, c in enumerate(cells):
+                        if i == len(cells) - 1 and c != "#e8e8e8":
+                            strip_parts.append(
+                                f'<span class="trend-cell live" '
+                                f'style="background:{c};color:{c}"></span>'
+                            )
+                        else:
+                            strip_parts.append(
+                                f'<span class="trend-cell" '
+                                f'style="background:{c}"></span>'
+                            )
+                    strip = ''.join(strip_parts)
                     val_s = fmt.format(val) if val is not None else "—"
+                    val_cls = "metric-val danger" if lvl in ("높음", "낮음") else "metric-val"
                     html += (
                         f'<div class="metric-row">'
                         f'<span class="metric-lab">{label}</span>'
-                        f'<span class="metric-val" style="color:{color}">{val_s}</span>'
+                        f'<span class="{val_cls}" style="color:{color}">{val_s}</span>'
                         f'<span class="metric-unit">{unit}</span>'
                         f'<span class="trend-strip">{strip}</span>'
                         f'</div>'
