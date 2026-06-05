@@ -281,14 +281,11 @@ def trend_colors(df_node, metric, slots=TREND_SLOTS,
 
 
 def violation_minutes_today(df_node, metric):
-    """오늘 기준 위반 누적 시간(분). 측정 주기를 1건당 30초로 가정."""
+    """최근 24시간 기준 위반 누적 시간(분). 측정 주기 30초 가정.
+    df_node['received_at']는 KST tz-naive."""
     if df_node.empty or metric not in df_node.columns:
         return 0
-    today_start = datetime.now(timezone.utc).replace(
-        hour=15, minute=0, second=0, microsecond=0
-    ) - timedelta(days=1)
-    # KST 자정 = UTC 전날 15:00. 단순화를 위해 24h만.
-    today_start = datetime.now(timezone.utc) - timedelta(hours=24)
+    today_start = kst_now() - timedelta(hours=24)
     df_t = df_node[df_node["received_at"] >= today_start]
     if df_t.empty:
         return 0
