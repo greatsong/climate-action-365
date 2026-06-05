@@ -17,6 +17,8 @@ from datetime import datetime, timezone, timedelta
 
 import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 
@@ -347,7 +349,7 @@ with tab1:
         "환기 권장은 온도·습도가 동시에 기준 가까이 닿을 때 자동 표시."
     )
 
-    # ---------- 학교 전체 1시간 시계열 ----------
+    # ---------- 학교 전체 1시간 시계열 (plotly) ----------
     st.markdown("###  ")
     st.subheader("📈 최근 1시간 · 학교 전체 평균")
 
@@ -360,18 +362,58 @@ with tab1:
                             .resample("1min")
                             .mean(numeric_only=True))
         cc1, cc2, cc3 = st.columns(3)
+
+        def line_with_bands(series, color, ymin=None, ymax=None, title=""):
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=series.index, y=series.values, mode="lines",
+                line=dict(color=color, width=2.5),
+                hovertemplate="%{x|%H:%M}<br>%{y:.1f}<extra></extra>",
+            ))
+            if ymin is not None:
+                fig.add_hline(y=ymin, line_dash="dot",
+                              line_color="rgba(52,152,219,0.4)",
+                              annotation_text=f"min {ymin}",
+                              annotation_position="bottom right",
+                              annotation_font_size=10)
+            if ymax is not None:
+                fig.add_hline(y=ymax, line_dash="dot",
+                              line_color="rgba(231,76,60,0.4)",
+                              annotation_text=f"max {ymax}",
+                              annotation_position="top right",
+                              annotation_font_size=10)
+            fig.update_layout(
+                height=200, margin=dict(l=10, r=10, t=10, b=10),
+                showlegend=False, title=None,
+                xaxis_title=None, yaxis_title=None,
+                plot_bgcolor="#fafafa",
+            )
+            return fig
+
         if "temperature" in minute_avg.columns:
             with cc1:
                 st.caption("🌡️ 온도 (°C) · 기준 18~28")
-                st.line_chart(minute_avg[["temperature"]], height=180)
+                st.plotly_chart(
+                    line_with_bands(minute_avg["temperature"],
+                                    "#e74c3c", ymin=18, ymax=28),
+                    use_container_width=True,
+                )
         if "humidity" in minute_avg.columns:
             with cc2:
                 st.caption("💧 습도 (%RH) · 기준 30~80")
-                st.line_chart(minute_avg[["humidity"]], height=180)
+                st.plotly_chart(
+                    line_with_bands(minute_avg["humidity"],
+                                    "#3498db", ymin=30, ymax=80),
+                    use_container_width=True,
+                )
         if "light" in minute_avg.columns:
             with cc3:
                 st.caption("💡 조도 (%) · 자체 기준 ≥30")
-                st.line_chart(minute_avg[["light"]], height=180)
+                st.plotly_chart(
+                    line_with_bands(minute_avg["light"],
+                                    "#f39c12", ymin=30),
+                    use_container_width=True,
+                )
 
     # ---------- 오늘 누적 위반 시간 (캠페인 우선순위) ----------
     st.markdown("###  ")
@@ -435,11 +477,32 @@ with tab2:
             c1.metric("온도 (°C)", f"{df['temperature'].iloc[-1]:.1f}")
             c2.metric("습도 (%RH)", f"{df['humidity'].iloc[-1]:.1f}")
             c3.metric("조도 (%)", f"{df['light'].iloc[-1]:.1f}")
-            st.line_chart(df.set_index("received_at")[["temperature"]],
-                          height=200)
-            st.line_chart(df.set_index("received_at")[["humidity"]],
-                          height=200)
-            st.line_chart(df.set_index("received_at")[["light"]], height=200)
+            ts_df = df.set_index("received_at")
+            for col, color, ymin, ymax, label in [
+                ("temperature", "#e74c3c", 18, 28, "🌡️ 온도 (°C)"),
+                ("humidity",    "#3498db", 30, 80, "💧 습도 (%RH)"),
+                ("light",       "#f39c12", 30, None, "💡 조도 (%)"),
+            ]:
+                if col not in ts_df.columns:
+                    continue
+                st.caption(label)
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=ts_df.index, y=ts_df[col], mode="lines",
+                    line=dict(color=color, width=2),
+                    hovertemplate="%{x|%m-%d %H:%M}<br>%{y:.1f}<extra></extra>",
+                ))
+                if ymin is not None:
+                    fig.add_hline(y=ymin, line_dash="dot",
+                                  line_color="rgba(52,152,219,0.4)")
+                if ymax is not None:
+                    fig.add_hline(y=ymax, line_dash="dot",
+                                  line_color="rgba(231,76,60,0.4)")
+                fig.update_layout(
+                    height=220, margin=dict(l=10, r=10, t=10, b=10),
+                    showlegend=False, plot_bgcolor="#fafafa",
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
 
 # ====================================================================
@@ -477,7 +540,28 @@ with tab3:
                          .pivot_table(index="received_at",
                                       columns="node_id", values=metric)
                          .sort_index())
-                st.line_chart(pivot, height=400)
+                fig = go.Figure()
+                for col in pivot.columns:
+                    fig.add_trace(go.Scatter(
+                        x=pivot.index, y=pivot[col], mode="lines",
+                        name=col, line=dict(width=1.8),
+                        hovertemplate=f"{col}<br>%{{x|%m-%d %H:%M}}"
+                                      "<br>%{y:.1f}<extra></extra>",
+                    ))
+                lim = LIMITS[metric]
+                if lim["min"] is not None:
+                    fig.add_hline(y=lim["min"], line_dash="dot",
+                                  line_color="rgba(52,152,219,0.4)")
+                if lim["max"] is not None:
+                    fig.add_hline(y=lim["max"], line_dash="dot",
+                                  line_color="rgba(231,76,60,0.4)")
+                fig.update_layout(
+                    height=420, margin=dict(l=10, r=10, t=10, b=10),
+                    plot_bgcolor="#fafafa",
+                    legend=dict(orientation="h", yanchor="bottom",
+                                y=1.02, xanchor="right", x=1),
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
                 lim = LIMITS[metric]
                 st.subheader("기준 위반 횟수 (이 기간)")
@@ -533,12 +617,27 @@ with tab4:
             f"평균 {LIMITS[metric]['label']} · 행=교실(NODE_ID 정렬) · 열=0~23시"
         )
 
-        # Streamlit native — DataFrame 색상으로 시각화
-        styled = pivot.style.background_gradient(
-            cmap="RdYlGn_r" if metric != "light" else "YlOrBr",
-            axis=None, vmin=pivot.min().min(), vmax=pivot.max().max(),
-        ).format("{:.1f}")
-        st.dataframe(styled, use_container_width=True, height=600)
+        # plotly 히트맵 — matplotlib 의존성 없음
+        colorscale = ("RdYlGn_r" if metric == "temperature"
+                      else ("Blues" if metric == "humidity" else "YlOrBr"))
+        fig = go.Figure(data=go.Heatmap(
+            z=pivot.values,
+            x=[f"{h:02d}시" for h in range(24)],
+            y=list(pivot.index),
+            colorscale=colorscale,
+            hovertemplate=(
+                "교실 %{y}<br>%{x}<br>"
+                f"평균 {LIMITS[metric]['label']}: " + "%{z:.1f}<extra></extra>"
+            ),
+            colorbar=dict(title=LIMITS[metric]['unit'], thickness=15),
+        ))
+        fig.update_layout(
+            height=max(300, len(pivot) * 30 + 80),
+            margin=dict(l=10, r=10, t=10, b=10),
+            xaxis=dict(side="top"),
+            yaxis=dict(autorange="reversed"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
         # 시간대별 위반 빈도 (캠페인 타깃 시간대)
         st.subheader("⏰ 시간대별 위반 빈도 — 어느 교시에 가장 자주 깨지나")
@@ -549,4 +648,17 @@ with tab4:
         if lim["min"] is not None:
             df_h["viol"] |= (df_h[metric] < lim["min"])
         per_hour = df_h.groupby("hour")["viol"].sum()
-        st.bar_chart(per_hour, height=200)
+        # 0~23 모두 보장
+        per_hour = per_hour.reindex(range(24), fill_value=0)
+        fig = go.Figure(go.Bar(
+            x=[f"{h:02d}시" for h in per_hour.index],
+            y=per_hour.values,
+            marker_color="#e74c3c",
+            hovertemplate="%{x}<br>%{y}건<extra></extra>",
+        ))
+        fig.update_layout(
+            height=240, margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=False, plot_bgcolor="#fafafa",
+            xaxis_title=None, yaxis_title="위반 건수",
+        )
+        st.plotly_chart(fig, use_container_width=True)
