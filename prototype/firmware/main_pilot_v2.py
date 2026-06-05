@@ -48,6 +48,46 @@ recent_notes = []    # [(ts, note), ...]
 measure_count = 0
 boot_ts = 0
 
+# 메모 textarea 입력 중 refresh를 멈추고 sessionStorage에 임시 보존.
+# meta refresh 대신 setInterval로 갈아탔기에 가능.
+SCRIPT_HTML = """<script>
+(function () {
+  var INTERVAL = 3000;
+  var KEY = 'pico_note_draft';
+  var timer = null;
+  function startTimer() {
+    if (timer) return;
+    timer = setInterval(function () { location.reload(); }, INTERVAL);
+  }
+  function stopTimer() {
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var ta = document.querySelector('textarea[name=note]');
+    if (ta) {
+      var saved = sessionStorage.getItem(KEY);
+      if (saved && !ta.value) ta.value = saved;
+      ta.addEventListener('focus', stopTimer);
+      ta.addEventListener('input', function () {
+        sessionStorage.setItem(KEY, ta.value);
+        stopTimer();
+      });
+      ta.addEventListener('blur', function () {
+        // 입력 후 5초간 사용자가 가만히 있으면 다시 자동 갱신
+        setTimeout(startTimer, 5000);
+      });
+    }
+    var form = document.querySelector('form');
+    if (form) {
+      form.addEventListener('submit', function () {
+        sessionStorage.removeItem(KEY);
+      });
+    }
+    startTimer();
+  });
+})();
+</script>"""
+
 
 def log(msg):
     print("[{}] {}".format(time.ticks_ms(), msg))
@@ -260,7 +300,6 @@ def make_page(cur_t, cur_rh, cur_light):
     return """<!DOCTYPE html>
 <html lang="ko"><head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="{refresh}">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{node} 라이브</title>
 <style>
@@ -322,17 +361,18 @@ ul.notes time{{color:#888;font-size:0.85em;margin-right:0.5em;
 </form>
 <ul class="notes">{notes_html}</ul>
 <div class="foot">
-{refresh}초마다 자동 갱신 · 측정 {interval}초 주기 · 윈도우 {window}분<br>
+{refresh}초마다 자동 갱신 (입력 중엔 중지) · 측정 {interval}초 주기 · 윈도우 {window}분<br>
 📥 <a href="/data.csv">data.csv</a> · <a href="/notes.csv">notes.csv</a>
 · <a href="/clear" class="danger" onclick="return confirm('데이터 초기화?')">⚠ 초기화</a>
 </div>
-</div></body></html>""".format(
+</div>{script}</body></html>""".format(
         refresh=REFRESH_SEC, node=secrets.NODE_ID, now_str=fmt_time(now),
         count=measure_count, up=uptime_str, nrec=len(recent), rmax=RECENT_MAX,
         ct=cur_t, crh=cur_rh, clt=cur_light,
         tr_t=trend_arrow(1), tr_rh=trend_arrow(2), tr_lt=trend_arrow(3),
         svg_t=svg_t, svg_rh=svg_rh, svg_lt=svg_lt,
         notes_html=notes_html, interval=INTERVAL_SEC, window=WINDOW_SEC // 60,
+        script=SCRIPT_HTML,
     )
 
 
