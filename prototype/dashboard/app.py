@@ -22,8 +22,8 @@ import streamlit as st
 
 SERVER_URL = "http://localhost:8000"
 
-# 학교 구조 (당곡고 16개 교실)
-GRADES = [1, 2, 3]
+# 학교 구조 (당곡고 16개 교실 = 1학년 8반 + 2학년 8반)
+GRADES = [1, 2]
 ROOMS_PER_GRADE = 8
 
 LIMITS = {
