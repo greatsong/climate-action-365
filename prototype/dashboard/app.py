@@ -175,6 +175,7 @@ h3{margin-top:0.4em !important;margin-bottom:0.2em !important;}
 .trend-strip{display:inline-flex;gap:2px;margin-left:auto;
              align-items:center;flex-shrink:0;}
 .trend-cell{width:8px;height:11px;border-radius:2px;
+            box-shadow:inset 0 0 0 1px rgba(0,0,0,0.07);
             transition:background 0.3s ease;flex-shrink:0;}
 .trend-cell.live{width:10px;height:13px;border-radius:3px;
                  box-shadow:0 0 0 0 currentColor;
@@ -228,14 +229,54 @@ def fetch_node_readings(node_id, since_minutes=1440):
 
 
 # ---------- 헬퍼 ----------
+def is_violation(metric, value):
+    """min/max 기준 위반 여부. status_for 라벨 변경의 영향 차단용."""
+    if value is None or pd.isna(value):
+        return False
+    lim = LIMITS[metric]
+    if lim["min"] is not None and value < lim["min"]:
+        return True
+    if lim["max"] is not None and value > lim["max"]:
+        return True
+    return False
+
+
 def status_for(metric, value):
-    """(색상, 레벨) 반환."""
+    """(색상, 레벨) 반환. metric별 직관적 색.
+    - 🌡️ 온도: 추움(파랑)/적정(초록)/더움(빨강)
+    - 💧 습도: 건조(노랑)/적정(초록)/습함(파랑)   ← 물 = 파랑
+    - 💡 조도: 어두움(검정)/밝음(흰색)            ← 명도 단순화
+    """
     if value is None or pd.isna(value):
         return ("#e8e8e8", "없음")
     lim = LIMITS[metric]
-    if lim["min"] is not None and value < lim["min"]:
+    low = lim["min"] is not None and value < lim["min"]
+    high = lim["max"] is not None and value > lim["max"]
+
+    if metric == "temperature":
+        if low:
+            return ("#3498db", "추움")
+        if high:
+            return ("#e74c3c", "더움")
+        return ("#2ecc71", "적정")
+
+    if metric == "humidity":
+        if low:
+            return ("#f1c40f", "건조")   # 노랑
+        if high:
+            return ("#3498db", "습함")   # 파랑
+        return ("#2ecc71", "적정")
+
+    if metric == "light":
+        # 흰/검 단순화: 어두움=검정, 적정/밝음=흰색
+        if low:
+            return ("#2c3e50", "어두움")
+        return ("#ffffff", "밝음")
+
+    # fallback
+    if low:
         return ("#3498db", "낮음")
-    if lim["max"] is not None and value > lim["max"]:
+    if high:
         return ("#e74c3c", "높음")
     return ("#2ecc71", "적정")
 
@@ -607,7 +648,7 @@ with tab1:
             if v is None:
                 continue
             _, level = status_for(metric, v)
-            if level in ("높음", "낮음"):
+            if is_violation(metric, v):
                 lim = LIMITS[metric]
                 violations.append({
                     "교실": n["node_id"],
@@ -686,9 +727,8 @@ with tab1:
                          if tag_parts else "")
 
             card_danger = any(
-                status_for(m, latest.get(m))[1] in ("높음", "낮음")
+                is_violation(m, latest.get(m))
                 for m in ("temperature", "humidity", "light")
-                if latest.get(m) is not None
             )
             if stale:
                 cls = "room-card stale"
@@ -718,6 +758,7 @@ with tab1:
                 ("💡", latest.get("light"),       "{:.0f}", "%", "light"),
             ]:
                 color, lvl = status_for(metric, val)
+                violated = is_violation(metric, val)
                 cells = trend_colors(df_n, metric)
                 strip_parts = []
                 for i, c in enumerate(cells):
@@ -732,8 +773,7 @@ with tab1:
                         )
                 strip = ''.join(strip_parts)
                 val_s = fmt.format(val) if val is not None else "—"
-                val_cls = ("metric-val danger" if lvl in ("높음", "낮음")
-                           else "metric-val")
+                val_cls = "metric-val danger" if violated else "metric-val"
                 # 💡 조도가 충분히 밝으면 노랑 빛나는 효과
                 emoji_cls = "metric-emoji"
                 if metric == "light" and val is not None and val >= 50:
