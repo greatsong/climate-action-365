@@ -123,8 +123,14 @@ HEATER_TEMP_THRESHOLD = _init_th["heater"]
 
 
 # ---------- 시간 설정 JSON (런타임 우선) ----------
+# 점심시간 정책:
+#   "out_of_class" — 학생들이 급식실로 → 점심시간 비수업으로 처리 (낭비 감지 ON)
+#   "in_class"     — 교실에서 점심 → 수업 시간처럼 정상 사용 (낭비 감지 OFF)
+DEFAULT_LUNCH_POLICY = "out_of_class"
+
+
 def load_config():
-    """schedule_config.json이 있으면 그 시간표 반환, 없으면 DEFAULT."""
+    """schedule_config.json이 있으면 반환, 없으면 DEFAULT."""
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, encoding="utf-8") as f:
@@ -136,19 +142,20 @@ def load_config():
                     for p in data["periods"]
                 ],
                 "lunch": (data["lunch"]["start"], data["lunch"]["end"]),
+                "lunch_policy": data.get("lunch_policy",
+                                         DEFAULT_LUNCH_POLICY),
             }
         except Exception:
             pass
-    return SCHEDULE_DEFAULT
+    return {**SCHEDULE_DEFAULT, "lunch_policy": DEFAULT_LUNCH_POLICY}
 
 
-def save_config(periods, lunch, weekdays=None):
-    """schedule_config.json 저장.
-    periods: list of (start, end, num); lunch: (start, end)."""
+def save_config(periods, lunch, lunch_policy=None, weekdays=None):
     data = {
         "weekdays": weekdays or [0, 1, 2, 3, 4],
         "periods": [{"start": s, "end": e, "num": n} for s, e, n in periods],
         "lunch": {"start": lunch[0], "end": lunch[1]},
+        "lunch_policy": lunch_policy or DEFAULT_LUNCH_POLICY,
     }
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -249,17 +256,28 @@ def get_class_schedule():
 
 
 # ---------- 시간 판단 API ----------
+def is_lunch_time(dt, schedule=None):
+    """현재가 점심시간인지."""
+    if schedule is None:
+        schedule = load_config()
+    lunch = schedule.get("lunch")
+    if not lunch:
+        return False
+    if dt.weekday() not in schedule["weekdays"]:
+        return False
+    hm = dt.strftime("%H:%M")
+    return lunch[0] <= hm < lunch[1]
+
+
 def current_period_number(dt, schedule=None):
     """현재 교시 번호(1~7) 또는 None. 점심시간은 None."""
     if schedule is None:
         schedule = load_config()
     if dt.weekday() not in schedule["weekdays"]:
         return None
-    hm = dt.strftime("%H:%M")
-    # 점심시간 우선 체크 (점심 = 비수업)
-    lunch = schedule.get("lunch")
-    if lunch and lunch[0] <= hm < lunch[1]:
+    if is_lunch_time(dt, schedule):
         return None
+    hm = dt.strftime("%H:%M")
     for start, end, num in schedule["periods"]:
         if start <= hm < end:
             return num
@@ -292,6 +310,11 @@ def is_class_time_for_node(dt, node_id):
 # ---------- 에너지 낭비 감지 ----------
 def detect_waste(latest, current_dt, node_id=None):
     if is_class_time_for_node(current_dt, node_id):
+        return []
+    # 점심시간 정책: 교실에서 점심을 먹는 학교면 정상 사용으로 처리
+    cfg = load_config()
+    if (is_lunch_time(current_dt, cfg)
+            and cfg.get("lunch_policy") == "in_class"):
         return []
     is_weekend = current_dt.weekday() >= 5
 

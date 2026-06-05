@@ -44,24 +44,36 @@ st.set_page_config(page_title="기후행동365 대시보드",
 
 # ---------- 스타일 ----------
 st.markdown("""<style>
-.block-container{padding-top:1.2rem;padding-bottom:1rem;max-width:1500px;
-                 padding-left:0.8rem;padding-right:0.8rem;}
-.grade-header{font-size:1.05em;color:#444;font-weight:700;
-              border-left:5px solid #2ecc71;padding:0.35em 0.7em;
-              margin:1.2em 0 0.5em;background:#f6fbf8;border-radius:3px;}
+.block-container{padding-top:0.6rem;padding-bottom:0.5rem;max-width:1500px;
+                 padding-left:0.7rem;padding-right:0.7rem;}
+/* ----- 헤더 컴팩트 ----- */
+h1{font-size:1.4em !important;margin:0.1em 0 0.2em !important;
+   font-weight:700;}
+[data-testid="stCaptionContainer"]{margin-bottom:0.2em;}
+/* KPI metric 컴팩트 */
+[data-testid="stMetric"]{padding:0.2em 0.4em;}
+[data-testid="stMetricLabel"]{font-size:0.78em !important;}
+[data-testid="stMetricValue"]{font-size:1.4em !important;}
+/* 탭 컴팩트 */
+.stTabs [data-baseweb="tab-list"]{gap:0.5em;}
+.stTabs [data-baseweb="tab"]{padding:0.3em 0.6em;}
+
+.grade-header{font-size:1em;color:#444;font-weight:700;
+              border-left:4px solid #2ecc71;padding:0.2em 0.6em;
+              margin:0.5em 0 0.3em;background:#f6fbf8;border-radius:3px;}
 
 /* ----- 반응형 카드 그리드 ----- */
 .room-grid{display:grid;
-           grid-template-columns:repeat(auto-fit, minmax(135px, 1fr));
-           gap:0.5em;margin-bottom:0.6em;}
+           grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));
+           gap:0.35em;margin-bottom:0.3em;}
 @media (max-width:480px){
-  .room-grid{grid-template-columns:repeat(2, minmax(0, 1fr));gap:0.4em;}
+  .room-grid{grid-template-columns:repeat(2, minmax(0, 1fr));gap:0.3em;}
 }
 
-/* ----- 라이브 카드 ----- */
-.room-card{background:#fff;padding:0.6em 0.55em;border-radius:12px;
-           box-shadow:0 2px 6px rgba(0,0,0,0.06);text-align:left;
-           min-height:10em;border:1px solid #f0f0f0;
+/* ----- 라이브 카드 (컴팩트) ----- */
+.room-card{background:#fff;padding:0.5em 0.5em 0.4em;border-radius:10px;
+           box-shadow:0 1px 4px rgba(0,0,0,0.05);text-align:left;
+           min-height:7.5em;border:1px solid #f0f0f0;
            transition:all 0.25s ease;overflow:hidden;
            display:flex;flex-direction:column;}
 .room-card:hover{box-shadow:0 4px 12px rgba(0,0,0,0.12);
@@ -384,6 +396,23 @@ with st.sidebar:
             lc1.caption("점심 시작")
             lc2.caption("점심 종료")
 
+            st.markdown("**🍱 점심시간 사용 정책**")
+            cur_policy = cur.get("lunch_policy", "out_of_class")
+            lunch_policy = st.radio(
+                "점심시간 사용 정책",
+                options=["out_of_class", "in_class"],
+                index=0 if cur_policy == "out_of_class" else 1,
+                format_func=lambda v: {
+                    "out_of_class": (
+                        "🏃 학생들이 급식실로 — 점심시간 = 비수업 "
+                        "(에어컨·조명 켜져 있으면 낭비 의심)"),
+                    "in_class": (
+                        "🍱 교실에서 점심 — 점심시간 = 수업처럼 정상 사용 "
+                        "(낭비 감지 안 함)"),
+                }[v],
+                label_visibility="collapsed",
+            )
+
             st.markdown("**📚 교시 시작·종료**")
             new_periods = []
             for s, e, num in cur["periods"]:
@@ -409,6 +438,7 @@ with st.sidebar:
                 sched.save_config(
                     new_periods,
                     (l_start.strftime("%H:%M"), l_end.strftime("%H:%M")),
+                    lunch_policy=lunch_policy,
                 )
                 st.success("✅ 저장됨. 다시 로드합니다…")
                 st.rerun()
