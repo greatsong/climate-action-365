@@ -98,7 +98,7 @@ def post_reading(r: Reading):
 @app.get("/readings")
 def get_readings(
     node_id: Optional[str] = None,
-    limit: int = Query(default=500, le=10000),
+    limit: int = Query(default=500, le=100000),
     since_minutes: Optional[int] = Query(default=None),
 ):
     sql = "SELECT * FROM readings"
