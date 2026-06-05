@@ -1,5 +1,6 @@
 # Unit 4. 🎯 운영과 장애 대응
 
+
 이번 시간은 16대가 모두 살아난 다음부터의 일상을 다룹니다. 시스템을 ‘만드는 일’은 한 번이지만, ‘운영하는 일’은 1년 내내, 어쩌면 졸업 뒤 후배에게 인계하는 그 다음 해까지 이어집니다. 시스템이 가장 위험한 순간은 만들고 있을 때가 아니라 ‘잘 굴러간다고 믿기 시작했을 때’입니다.
 
 이번 단원의 학습 흐름은 ‘작은 점검을 자주, 큰 점검을 가끔’입니다. 매일 5분이 걸리는 일일 점검, 일주일에 한 번의 주간 점검, 한 달에 한 번의 월간 점검 — 이 세 층으로 운영팀의 일과가 짜입니다. 한편 무엇인가 망가졌을 때를 위한 ‘장애 대응 매뉴얼’도 미리 만들어 둡니다. 사고가 난 뒤에 매뉴얼을 쓰면 늦습니다.
@@ -36,7 +37,7 @@
 1. 16개 카드가 모두 보이는가?
 2. 🚨 표시된 카드가 있는가?
 3. 모든 카드의 ‘마지막 수신’이 5분 이내인가?
-4. 명백히 이상한 값이 있는가? (예: T=-45°C, lux=0 고정)
+4. 명백히 이상한 값이 있는가? (예: T=-45°C, light=0 고정)
 5. 어제 밤사이 새로 ‘빨간색(위험)’이 켜졌던 시간대가 있는가?
 
 이 다섯 줄을 매일 같은 순서로 봅니다. 어떤 한 줄이 ‘아니오’이면 그 줄에 해당하는 대응 절차로 갑니다.
@@ -84,7 +85,7 @@
 |---|---|---|
 | Pico 본체 LED | 꺼짐 | 전원 단계 의심 → USB 케이블·어댑터·콘센트 재확인 |
 | LED 켜짐, 셸 출력 없음 | 펌웨어 의심 | USB 재꽂기 → 자동 와치독 재부팅 기다림 |
-| 측정값이 0 또는 -45 같은 극단값 | 케이블 빠짐 의심 | 박스 열어 Grove·점퍼 재연결 |
+| 측정값이 0 또는 -45 같은 극단값 | 케이블 빠짐 의심 | 박스 열어 Grove 케이블 재연결 |
 
 ### 2.3 15분: 복구 또는 교체
 
@@ -257,6 +258,145 @@ daily.plot(title="일평균 온도 (5월)")
 > 1. 챗 LLM에 ‘다음 표(노드별 위반 횟수)와 그림 세 장을 바탕으로 한 페이지 보고서를 한국어로 써 주세요. 학생 운영팀이 발표할 수 있는 톤으로’라고 부탁합니다.
 > 2. AI가 만든 초안에서 ‘사실 확인이 필요한 줄’을 골라 우리 데이터로 다시 검증합니다.
 > 3. AI는 글의 형태를, 우리는 사실의 정확성을 책임진다 — 이 분업이 가장 좋은 결과를 만듭니다.
+
+### 5.4 분석팀 레시피북 — 자주 쓰는 SQL과 Pandas
+
+월간 리포트가 익숙해지면, 분석팀이 자기만의 질문을 데이터에 던지기 시작합니다. 다음 다섯 묶음은 그 첫 출발점입니다. 외울 필요는 없습니다. 한 번씩 돌려 보고 결과가 어떻게 나오는지를 손에 익히면 충분합니다.
+
+#### 코드 4-4 — 교실별 시간대 평균 (점심 시간 전후 변화 찾기)
+
+```sql
+sqlite3 /home/pi/climate-action-365/prototype/server/data.db <<EOF
+.mode column
+.headers on
+SELECT node_id,
+       CAST(strftime('%H', received_at) AS INTEGER) AS hour,
+       ROUND(AVG(temperature), 1) AS avg_temp,
+       ROUND(AVG(humidity), 1)    AS avg_rh,
+       ROUND(AVG(light), 1)       AS avg_light,
+       COUNT(*)                   AS n
+FROM readings
+WHERE received_at >= datetime('now','-7 days')
+GROUP BY node_id, hour
+ORDER BY node_id, hour;
+EOF
+```
+
+읽는 방법: 각 교실의 24시간을 한 줄씩 본 뒤, 점심 시간(12~13시) 전후로 온도·습도가 어떻게 변하는지 살핍니다. 잘 환기되는 교실은 점심 시간 후 1~2시간이 지나면 평소 값으로 돌아옵니다. 안 되는 교실은 오후 내내 높은 상태로 머무릅니다.
+
+#### 코드 4-5 — Pandas로 ‘요일×시간’ 히트맵
+
+```python
+# 본인 컴퓨터에서 (data.db 백업본 기준)
+import pandas as pd, sqlite3, matplotlib.pyplot as plt
+
+conn = sqlite3.connect("data-20260521.db")
+df = pd.read_sql(
+    "SELECT received_at, node_id, temperature FROM readings "
+    "WHERE node_id='1-1' AND received_at >= '2026-05-01'",
+    conn,
+)
+df["received_at"] = pd.to_datetime(df["received_at"])
+df["weekday"] = df["received_at"].dt.day_name()
+df["hour"]    = df["received_at"].dt.hour
+
+pivot = df.pivot_table(
+    index="weekday", columns="hour", values="temperature", aggfunc="mean"
+)
+# 요일 순서 정렬
+order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+pivot = pivot.reindex(order)
+
+fig, ax = plt.subplots(figsize=(12, 4))
+im = ax.imshow(pivot.values, aspect="auto", cmap="YlOrRd")
+ax.set_xticks(range(24)); ax.set_xticklabels(range(24))
+ax.set_yticks(range(7));  ax.set_yticklabels(order)
+ax.set_title("교실 1-1 · 요일×시간 평균 온도 (5월)")
+plt.colorbar(im, label="°C")
+plt.tight_layout(); plt.savefig("heatmap_1-1.png", dpi=150)
+```
+
+이 한 장의 히트맵으로 ‘월요일 8~9교시가 가장 덥다’ ‘토요일은 어떤 시간대도 평일과 다르다’ 같은 패턴이 한눈에 드러납니다. 같은 코드를 16노드에 한 번씩 돌리면 16장의 히트맵이 만들어집니다.
+
+#### 코드 4-6 — ‘고정값 노드 자동 탐지’ SQL (센서 고장 신호)
+
+```sql
+sqlite3 data.db <<EOF
+.mode column
+.headers on
+-- 최근 1시간 동안 어떤 노드의 측정값이 한 글자도 안 변했는가
+SELECT node_id,
+       COUNT(DISTINCT temperature) AS uniq_t,
+       COUNT(DISTINCT humidity)    AS uniq_rh,
+       COUNT(DISTINCT light)       AS uniq_light,
+       COUNT(*)                    AS n
+FROM readings
+WHERE received_at >= datetime('now','-1 hour')
+GROUP BY node_id
+HAVING uniq_t = 1 OR uniq_rh = 1 OR uniq_light = 1
+ORDER BY n DESC;
+EOF
+```
+
+`uniq_t = 1`은 ‘1시간 동안 온도값이 정확히 한 가지만 나왔다’는 뜻 — 센서가 고정값을 반환 중일 가능성이 높습니다. 실제 환경에서는 1시간 사이 최소 ±0.2°C의 자연 변동이 있어야 정상입니다.
+
+#### 코드 4-7 — 두 교실 동시 비교 (Pandas)
+
+```python
+import pandas as pd, sqlite3
+
+conn = sqlite3.connect("data-20260521.db")
+df = pd.read_sql(
+    """SELECT received_at, node_id, temperature, humidity, light
+       FROM readings
+       WHERE node_id IN ('1-1','1-2')
+         AND received_at >= '2026-05-15'""",
+    conn,
+)
+df["received_at"] = pd.to_datetime(df["received_at"])
+
+# 한 시간 평균으로 리샘플
+agg = (df.set_index("received_at")
+         .groupby("node_id")
+         .resample("1H")
+         .mean(numeric_only=True)
+         .reset_index())
+
+# 두 교실의 같은 시각 차이
+pivot = agg.pivot(index="received_at", columns="node_id", values="temperature")
+pivot["diff"] = pivot["1-1"] - pivot["1-2"]
+print(pivot["diff"].describe())
+```
+
+‘두 교실의 온도 차이’ 분포를 보면, 1-1이 평균 1.2°C 더 따뜻하다거나, 표준편차가 큰 시간대가 있다는 식의 사실이 숫자로 잡힙니다. 환기·조명·자리 배치 가설을 데이터로 검증하는 첫걸음입니다.
+
+#### 코드 4-8 — 학교보건법 ‘위반 시간’ 합산
+
+```sql
+sqlite3 data.db <<EOF
+.mode column
+.headers on
+-- 지난 30일 노드별 기준 위반 측정 건수 (30초 주기 = 건수 × 30초 = 위반 누적 시간)
+SELECT node_id,
+       SUM(CASE WHEN temperature > 28 THEN 1 ELSE 0 END) AS hot,
+       SUM(CASE WHEN temperature < 18 THEN 1 ELSE 0 END) AS cold,
+       SUM(CASE WHEN humidity > 80    THEN 1 ELSE 0 END) AS humid,
+       SUM(CASE WHEN humidity < 30    THEN 1 ELSE 0 END) AS dry,
+       SUM(CASE WHEN light < 30       THEN 1 ELSE 0 END) AS dark
+FROM readings
+WHERE received_at >= datetime('now','-30 days')
+GROUP BY node_id
+ORDER BY hot + cold + humid + dry + dark DESC;
+EOF
+```
+
+이 한 쿼리만으로 ‘이번 달 가장 환경이 나쁜 교실 TOP 5’가 즉시 정렬됩니다. 월간 리포트의 표지 숫자로 그대로 옮길 수 있습니다.
+
+> **📊 데이터 잠깐 들여다보기 · 한 줄 SQL이 한 페이지 리포트가 된다**
+>
+> 1. 위 다섯 묶음 중 가장 자주 쓰게 되는 것은 코드 4-8(위반 시간 합산)입니다. 이 한 쿼리의 결과가 곧 매월 학교 운영위원회에 들고 가는 자료의 본문입니다.
+> 2. 코드 4-5(요일×시간 히트맵)는 ‘월요일 1교시’ ‘금요일 점심 직후’ 같은 패턴의 ‘이름’을 만들어 줍니다. 이름이 붙은 패턴은 학생들이 토론하기 쉬워집니다.
+> 3. 코드 4-6(고정값 탐지)은 사후 점검이 아니라 ‘예방 점검’이 됩니다. 운영팀의 일주일 작업을 5분으로 줄여 줍니다.
 
 ---
 

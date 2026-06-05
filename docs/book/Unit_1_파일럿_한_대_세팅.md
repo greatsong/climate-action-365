@@ -1,8 +1,9 @@
 # Unit 1. 🎯 파일럿 한 대 세팅
 
+
 이번 시간에는 우리 교실에서 측정될 환경 데이터를 만들어 줄 **첫 번째 노드 한 대**를 직접 세팅해 보겠습니다. 16개 교실에 똑같은 박스를 풀어놓기 전에, 먼저 한 대로 ‘이 코드가 실제 보드 위에서 정말 동작하는지’를 손으로 확인해야 합니다. 16배의 시간을 16분의 1로 줄이는 가장 확실한 방법은 ‘한 번 제대로 만든 한 대’입니다.
 
-이번 단원의 학습 흐름은 단순합니다. 라즈베리 파이 피코 2 WH에 마이크로파이썬(MicroPython) 펌웨어를 설치하고, 그 위에 우리가 미리 만들어 둔 세 개의 파이썬 파일을 올린 다음, 온습도 센서(SHT40)와 조도 센서(BH1750)를 각각 알맞은 자리에 꽂아 보드를 부팅합니다. 모든 단계의 결과는 셸(Shell) 창에 한 줄씩 출력되므로, 무엇이 어디에서 어떻게 멈췄는지 즉시 알 수 있습니다.
+이번 단원의 학습 흐름은 단순합니다. 라즈베리 파이 피코 2 WH에 마이크로파이썬(MicroPython) 펌웨어를 설치하고, 그 위에 우리가 미리 만들어 둔 세 개의 파이썬 파일을 올린 다음, 온습도 센서(SHT40)와 아날로그 조도 센서(Grove Light Sensor (P) v1.1)를 각각 알맞은 자리에 꽂아 보드를 부팅합니다. 모든 단계의 결과는 셸(Shell) 창에 한 줄씩 출력되므로, 무엇이 어디에서 어떻게 멈췄는지 즉시 알 수 있습니다.
 
 여기서 한 가지 중요한 점을 미리 짚어 두겠습니다. 우리는 이번 단원에서 ‘코드를 새로 짜는 일’을 거의 하지 않습니다. 펌웨어 파일도 미리 만들어 두었고, 회로 배선도 표준이 정해져 있습니다. 그렇다면 이번 단원의 진짜 학습 포인트는 무엇일까요? 바로 ‘**무엇이 잘못되었을 때, 어디를 봐야 하는지를 익히는 일**’입니다. 한 대를 만들면서 보드의 LED, Thonny의 셸 메시지, 서버의 로그, 그리고 대시보드의 카드 — 이 네 가지 신호가 어떻게 묶여 있는지를 손으로 체험합니다.
 
@@ -11,7 +12,7 @@
 작업이 끝났을 때 다음 네 가지가 모두 사실이어야 합니다.
 
 1. 피코 본체의 LED가 켜져 있고, Thonny 셸에 30초마다 측정 로그 한 줄이 찍힌다.
-2. 셸의 `I2C 스캔` 줄에 `0x44`와 `0x23`이 함께 보인다.
+2. 셸의 `I2C 스캔` 줄에 `0x44`가 보인다 (SHT40 하나만).
 3. 셸 출력에 `WiFi 연결됨: IP=…`이 한 번 이상 나타난다.
 4. 컴퓨터 브라우저로 서버의 `/nodes` 주소를 열면 방금 만든 노드가 목록에 보인다.
 
@@ -24,7 +25,7 @@
 > 3. 장애가 났을 때 ‘어디까지 켜져 있는지’를 빠르게 훑으면, 디버깅 시간이 절반으로 줄어듭니다.
 
 > 📷 **그림 1-1** · 완성된 파일럿 노드 한 대 전체 모습
-> *촬영 메모 — Pico 2 WH + Grove Shield + SHT40 + BH1750 + 마이크로 USB 케이블이 한 컷에 들어오게. 책상 위 자연광, 위에서 약 30도 각도.*
+> *촬영 메모 — Pico 2 WH + Grove Shield(전원 스위치 3.3V) + SHT40 + Grove Light Sensor + 마이크로 USB 케이블이 한 컷에 들어오게. 책상 위 자연광, 위에서 약 30도 각도.*
 
 ---
 
@@ -36,14 +37,13 @@
 |---|---|---|
 | Raspberry Pi Pico 2 WH | 1개 | 헤더가 사전 납땜된 ‘WH’ 모델 |
 | Grove Shield for Pi Pico | 1개 | 피코 위에 그대로 끼우는 확장 보드 |
-| SHT40 Grove 모듈 | 1개 | 온도와 습도를 함께 측정합니다 |
-| BH1750 GY-302 모듈 | 1개 | 조도를 측정합니다(점퍼 4핀 모듈) |
-| Grove 4핀 케이블 20cm | 1개 | SHT40을 Grove Shield에 연결할 때 |
-| Grove-점퍼 변환 케이블 | 1개 | BH1750을 Grove Shield에 연결할 때 |
+| SHT40 Grove 모듈 | 1개 | 온도와 습도를 함께 측정합니다 (I2C, 주소 0x44) |
+| Grove Light Sensor (P) v1.1 [101020173] | 1개 | 조도를 ‘**상대 밝기 0~100%**’로 측정합니다 (아날로그 LS06-S) |
+| Grove 4핀 케이블 20cm | 2개 | SHT40용 + Light Sensor용 |
 | 마이크로 USB 케이블 1m | 1개 | 전원·코드 업로드 둘 다 이 한 줄로 |
 | 컴퓨터 + Thonny | 1세트 | 운영체제는 Win/Mac/Linux 어느 것이라도 |
 | 학교 무선망(WPA2-PSK) 정보 | SSID + 패스워드 | Pico 2 W는 EAP 인증을 지원하지 않습니다 |
-| 서버 IP 주소 | 라즈베리 파이 5의 고정 IP | Unit 2를 미리 마치고 와도 좋고, 임시로 컴퓨터를 서버로 써도 됩니다 |
+| 서버 IP 주소 (**선택**) | 라즈베리 파이 5의 고정 IP | 없으면 그대로 진행 가능 — 측정·셸 로그는 정상이고 ‘전송 실패’만 찍힙니다. Unit 2 완성 후 채워도 됩니다. |
 
 > **Tip 마이크로 USB는 ‘데이터 통신용’으로**
 >
@@ -149,45 +149,40 @@ hello, pico
 
 ## 단계 3 — 센서 배선
 
-Grove Shield는 피코 위에 그대로 끼우는 확장 보드로, 4핀 Grove 커넥터를 여러 개 제공합니다. 우리는 그중 ‘I2C’라고 인쇄된 슬롯 두 개에 센서를 꽂습니다. 두 슬롯은 모두 같은 I2C 버스(GP4·GP5)로 묶여 있어, 어느 쪽에 꽂아도 동일하게 동작합니다.
+Grove Shield는 피코 위에 그대로 끼우는 확장 보드로, 4핀 Grove 커넥터를 여러 개 제공합니다. 슬롯에는 각자 다른 ‘이름’이 인쇄되어 있는데, 이번 단원에서는 두 종류의 슬롯을 씁니다 — **I2C** 슬롯에 SHT40을, **Analog(A0/A1/A2)** 슬롯에 Grove Light Sensor를 꽂습니다. 두 슬롯은 내부적으로 서로 다른 핀(`GP8/GP9` ↔ `GP26/27/28`)에 연결되어 있어 독립적으로 동작합니다.
 
-### 3.1 SHT40 연결
-
-SHT40 Grove 모듈은 양쪽 끝이 모두 Grove 커넥터입니다. 그러므로 다음과 같이 연결합니다.
-
-```
-[SHT40 모듈]──Grove 4핀 케이블 20cm──[Grove Shield의 I2C 슬롯 1]
-```
-
-Grove 커넥터는 한 방향으로만 끼워지도록 설계되어 있어, 거꾸로 꽂아 손상되는 일은 없습니다. 약간 빡빡하게 들어가지만 무리해서 휘게 만들지는 않습니다.
-
-### 3.2 BH1750 GY-302 연결
-
-BH1750을 단 GY-302 모듈은 일반 점퍼 핀 4개로 되어 있어 한쪽 끝을 변환 케이블로 받아 줍니다. 색상 매핑은 다음과 같습니다(케이블 제조사마다 색이 달라질 수 있으니 첫 한 대를 만들 때 반드시 실측합니다).
-
-| GY-302 핀 | 변환 케이블 점퍼 색 (표준) | Grove 신호 |
-|---|---|---|
-| VCC | 빨강 | 3.3V |
-| GND | 검정 | GND |
-| SCL | 노랑 | I2C 클럭 |
-| SDA | 흰색 | I2C 데이터 |
-
-```
-[BH1750 GY-302]──4핀 점퍼──[변환 케이블]──[Grove Shield의 I2C 슬롯 2]
-```
-
-> **Tip VCC와 GND가 바뀌면 모듈이 즉시 손상됩니다**
+> **Tip ⚠️ 전원 스위치는 반드시 3.3V**
 >
-> 1. 전원을 켜기 전, ‘빨강이 VCC, 검정이 GND’인지를 두 눈으로 확인합니다.
-> 2. 멀티미터가 있다면 Grove 커넥터의 1번 핀이 GND, 2번 핀이 VCC임을 한 번 더 짚어 봅니다.
-> 3. SDA·SCL이 바뀌어도 모듈은 손상되지 않지만 I2C 스캔에서 주소가 잡히지 않습니다.
+> 1. Grove Shield 위쪽에 있는 작은 슬라이드 스위치가 `5V`와 `3.3V` 사이를 오갈 수 있습니다.
+> 2. 반드시 **3.3V** 쪽으로 둡니다. 5V로 두면 Grove Light Sensor의 SIG 출력이 최대 5V까지 올라가 Pico의 ADC 입력(최대 3.3V)을 넘어 핀이 손상될 수 있습니다.
+> 3. 전원을 켜기 전에 한 번 더 위치를 확인하는 습관을 만듭니다.
 
-### 3.3 같은 I2C 버스에 두 모듈이 함께 사는 방법
+### 3.1 SHT40 연결 (I2C)
 
-두 모듈은 모두 GP4(SDA)·GP5(SCL) 한 쌍의 선에 병렬로 매달려 있습니다. 그런데 어떻게 충돌하지 않고 따로따로 응답할 수 있을까요? 정답은 **주소(address)**입니다. SHT40은 `0x44`로 자신을 호명할 때만 응답하고, BH1750은 `0x23`으로 호명할 때만 응답합니다. 한 줄의 전화선에 여러 명이 매달려 있어도, ‘이름을 부른 사람만 대답한다’는 약속이 있으면 서로 헷갈리지 않는 것과 같습니다.
+SHT40 Grove 모듈은 양쪽 끝이 모두 Grove 커넥터입니다.
 
-> 📷 **그림 1-4** · SHT40과 BH1750을 모두 꽂은 Grove Shield 윗면
-> *촬영 메모 — Grove Shield 위의 두 I2C 슬롯에 케이블이 각각 꽂혀 있고, 반대쪽 두 센서가 책상에 살짝 펼쳐진 모습. 색상 매핑이 잘 보이게 위에서 촬영.*
+```
+[SHT40 모듈]──Grove 4핀 케이블 20cm──[Grove Shield의 I2C 슬롯]
+```
+
+Shield의 ‘I2C’라고 인쇄된 슬롯은 내부에서 Pico의 `GP8 (SDA)`·`GP9 (SCL)`로 이어져 있고, 그곳에 꽂힌 SHT40은 주소 `0x44`로 응답합니다. Grove 커넥터는 한 방향으로만 끼워지도록 설계되어 거꾸로 꽂아 손상되는 일은 없습니다.
+
+### 3.2 Grove Light Sensor 연결 (Analog)
+
+Light Sensor도 한 방향만 끼워지는 Grove 커넥터입니다. 다만 꽂는 슬롯이 다릅니다 — **A0** 슬롯에 꽂습니다.
+
+```
+[Grove Light Sensor (P) v1.1]──Grove 4핀 케이블 20cm──[Grove Shield의 A0 슬롯]
+```
+
+Shield의 `A0`는 Pico의 `GP26 (= ADC0)`에 연결되어 있습니다. 센서의 SIG 핀이 빛의 밝기에 따라 0V~3.3V 사이의 전압을 내보내고, Pico가 그 전압을 0~65535의 정수로 읽어 우리는 그것을 다시 0~100%로 환산합니다.
+
+### 3.3 두 센서가 서로 다른 통신 방식을 쓰는 이유
+
+같은 보드 위의 두 센서가 한쪽은 ‘I2C’, 한쪽은 ‘아날로그’입니다. 왜 통일하지 않았을까요? 센서의 원리가 다르기 때문입니다. SHT40은 안에 작은 디지털 회로가 있어 ‘**측정 명령을 받으면 16비트 숫자로 답해 준다**’는 약속을 합니다. 그래서 I2C 같은 디지털 통신이 적합합니다. 반면 Grove Light Sensor는 LS06-S라는 포토트랜지스터 한 알이 빛의 양에 따라 전류만 흘리는 가장 단순한 부품입니다. 디지털로 말할 거리가 없으니, 그저 ‘**빛이 강할수록 SIG 핀에 더 높은 전압이 걸린다**’가 전부입니다. 그것을 읽는 가장 단순한 방법이 Pico의 ADC입니다.
+
+> 📷 **그림 1-4** · SHT40(I2C 슬롯) + Grove Light Sensor(A0 슬롯)
+> *촬영 메모 — Grove Shield 위 ‘I2C’ 인쇄 슬롯과 ‘A0’ 인쇄 슬롯에 케이블이 각각 꽂혀 있고, 반대쪽 두 센서가 책상에 펼쳐진 모습. 좌측 상단에 ‘3.3V’ 위치의 전원 스위치가 잘 보이게.*
 
 ---
 
@@ -197,7 +192,7 @@ BH1750을 단 GY-302 모듈은 일반 점퍼 핀 4개로 되어 있어 한쪽 �
 
 | 파일 | 역할 |
 |---|---|
-| `sensors.py` | SHT40·BH1750을 ‘읽어 오는’ 함수 모음 |
+| `sensors.py` | SHT40(I2C)과 Grove Light Sensor(ADC)를 ‘읽어 오는’ 함수 모음 |
 | `main.py` | WiFi 연결, 측정, 서버 전송, 와치독 등 메인 루프 |
 | `secrets.py` | 노드별로 다르게 채워 넣는 비밀값(WiFi, NODE_ID, 서버 URL) |
 
@@ -237,6 +232,320 @@ INTERVAL_SEC = 30                                              # 30초마다 측
 
 저장(Ctrl+S 또는 Cmd+S)을 누르면 보드 안의 파일이 즉시 갱신됩니다.
 
+> **Tip 서버 IP가 아직 없다면 — 그대로 진행해도 됩니다**
+>
+> 1. Unit 2(라즈베리 파이 5 서버) 완성 전이라도 Unit 1은 끝까지 진행할 수 있습니다.
+> 2. `SERVER_URL`을 그대로 두면 펌웨어는 측정과 셸 출력은 정상으로 돌고, 30초마다 한 번씩 ‘전송 실패’ 로그만 찍힙니다. 측정값은 코드 1-3의 `buffer.jsonl`에 그대로 쌓이므로 데이터 손실은 없습니다.
+> 3. 더 빠르게 서버 응답까지 보고 싶다면, 본인 컴퓨터에서 한 줄로 임시 서버를 띄울 수 있습니다.
+>
+>    ```bash
+>    cd ~/greatsong-project/climate-action-365/prototype/server
+>    python3 -m venv venv && source venv/bin/activate
+>    pip install -r requirements.txt
+>    uvicorn server:app --host 0.0.0.0 --port 8000
+>    ```
+>
+>    이 경우 `SERVER_URL`은 노트북의 IP(예: `http://192.168.0.123:8000/reading`)로 박아 둡니다.
+> 4. Unit 2 완성 후 진짜 라즈베리 파이 5의 IP로 바꾸고 보드를 재부팅하면, 그동안 buffer에 쌓여 있던 측정값까지 한 번에 서버로 올라갑니다(자동 flush).
+
+### 4.4 `sensors.py` — 센서 드라이버 코드 읽어 보기
+
+업로드만 하고 넘어가도 동작은 하지만, 이 파일이 ‘어떻게 SHT40에게는 디지털로 말을 걸고 Light Sensor에게는 아날로그로 듣는지’를 한 번 읽어 두면 다음에 다른 센서를 붙일 때 손이 빨라집니다.
+
+#### 코드 1-2
+
+```python
+"""
+SHT40 (온습도, I2C) + Grove Light Sensor (P) v1.1 (아날로그) MicroPython 드라이버.
+
+Grove Shield for Pi Pico 매핑 (당곡고 부품 기준):
+- I2C0: SDA=GP8, SCL=GP9  → SHT40 (주소 0x44)
+- Analog A0: GP26          → Grove Light Sensor (SIG)
+
+⚠️ Shield 전원 스위치는 반드시 3.3V로 둡니다.
+   5V로 두면 Light Sensor SIG 출력이 최대 5V까지 올라가 Pico ADC 입력(최대 3.3V)을
+   초과해 핀이 손상될 수 있습니다.
+
+Grove Light Sensor (P) v1.1은 LS06-S 포토트랜지스터 기반 아날로그 모듈입니다.
+lux가 아니라 ‘상대 밝기(0~100%)’를 반환합니다.
+"""
+
+from machine import I2C, Pin, ADC
+import time
+
+# ---------- SHT40 (I2C) ----------
+I2C_ID = 0
+SDA_PIN = 8
+SCL_PIN = 9
+I2C_FREQ = 100_000
+
+SHT40_ADDR = 0x44
+SHT40_CMD_HIGHPRECISION = b"\xFD"
+
+_i2c = I2C(I2C_ID, sda=Pin(SDA_PIN), scl=Pin(SCL_PIN), freq=I2C_FREQ)
+
+
+# ---------- Grove Light Sensor (ADC) ----------
+LIGHT_ADC_PIN = 26  # A0 (= GP26 = ADC0)
+_light_adc = ADC(Pin(LIGHT_ADC_PIN))
+
+
+def scan():
+    """I2C 주소 목록. SHT40만 사용하므로 [0x44] 한 개가 정상."""
+    return _i2c.scan()
+
+
+def read_sht40():
+    """SHT40에서 온도(°C)와 상대습도(%RH)를 읽는다."""
+    _i2c.writeto(SHT40_ADDR, SHT40_CMD_HIGHPRECISION)
+    time.sleep_ms(10)
+    data = _i2c.readfrom(SHT40_ADDR, 6)
+    t_raw = (data[0] << 8) | data[1]
+    rh_raw = (data[3] << 8) | data[4]
+    temperature = -45.0 + 175.0 * (t_raw / 65535.0)
+    humidity = -6.0 + 125.0 * (rh_raw / 65535.0)
+    if humidity < 0:
+        humidity = 0.0
+    elif humidity > 100:
+        humidity = 100.0
+    return temperature, humidity
+
+
+def read_light_raw():
+    """Grove Light Sensor의 raw ADC 값(0~65535) 반환. 보정·디버깅용."""
+    return _light_adc.read_u16()
+
+
+def read_light():
+    """Grove Light Sensor의 상대 밝기(0~100%)를 반환."""
+    raw = _light_adc.read_u16()
+    pct = (raw / 65535.0) * 100.0
+    if pct < 0:
+        pct = 0.0
+    elif pct > 100:
+        pct = 100.0
+    return pct
+```
+
+##### 핵심 한 줄 풀이
+
+`read_sht40()` 안의 환산식 `temperature = -45.0 + 175.0 * (t_raw / 65535.0)`을 한 번 들여다봅니다. 센서가 보내 주는 두 바이트(0~65535)는 그 자체로는 의미가 없습니다. SHT40의 데이터시트가 정한 ‘**0이면 -45°C, 65535면 130°C로 직선 환산하라**’는 약속이 이 한 줄에 들어 있습니다.
+
+같은 사고방식이 `read_light()`에서도 다시 등장합니다. ADC가 0~65535의 정수로 알려 준 값을 65535로 나누고 100을 곱해 ‘**가장 어두울 때 0%, 가장 밝을 때 100%**’로 옮깁니다. 다만 LS06-S의 출력은 정확한 lux가 아니라 ‘빛의 상대 세기’이므로, 절대값(예: 학교보건법 ‘책상면 300 lux 이상’)을 직접 매핑할 수는 없습니다. 분석팀이 학기 초에 ‘우리 학교 1교시 형광등 ON 평균 = N%’를 측정해 자기만의 임계값을 정하는 것이 정공법입니다.
+
+### 4.5 `main.py` — 메인 루프 코드 읽어 보기
+
+`main.py`는 매 30초마다 ‘**측정 → 서버 전송 → 실패하면 flash에 저장 → 다음 회차에 함께 재전송**’이라는 사이클을 무한 반복합니다. WiFi가 끊겼을 때를 대비한 재연결 로직과, 무한 루프 방지용 와치독(Watchdog) 타이머가 함께 들어 있습니다.
+
+#### 코드 1-3
+
+```python
+"""
+교실 환경 모니터링 노드 — Phase 1 (온습도 + 조도).
+
+동작:
+1. WiFi 연결 (실패 시 지수 백오프 재시도, 5분 넘으면 reset)
+2. SHT40로 온습도, Grove Light Sensor로 조도(%) 측정
+3. JSON으로 서버에 HTTP POST
+4. INTERVAL_SEC 만큼 대기 후 반복
+
+장애 대응:
+- 와치독 타이머 8초로 무한루프 방지
+- 네트워크 끊김 시 측정값을 flash에 버퍼링(최대 200건)했다가 재전송
+"""
+
+import json
+import time
+import network
+import urequests
+from machine import WDT, reset
+
+import secrets
+import sensors
+
+
+BUFFER_FILE = "buffer.jsonl"
+BUFFER_MAX = 200
+
+wdt = WDT(timeout=8000)
+
+
+def log(msg):
+    print("[{}] {}".format(time.ticks_ms(), msg))
+
+
+def connect_wifi():
+    """WiFi 연결. 지수 백오프로 재시도. 5분 넘으면 reset."""
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+
+    if wlan.isconnected():
+        return wlan
+
+    delay = 2
+    deadline = time.time() + 300  # 5분
+    while not wlan.isconnected():
+        wdt.feed()
+        log("WiFi 연결 시도: {}".format(secrets.WIFI_SSID))
+        try:
+            wlan.connect(secrets.WIFI_SSID, secrets.WIFI_PASSWORD)
+        except OSError as e:
+            log("connect 오류: {}".format(e))
+
+        for _ in range(10):
+            wdt.feed()
+            if wlan.isconnected():
+                break
+            time.sleep(1)
+
+        if wlan.isconnected():
+            break
+
+        if time.time() > deadline:
+            log("5분 내 연결 실패 → reset")
+            reset()
+
+        log("{}초 후 재시도".format(delay))
+        for _ in range(delay):
+            wdt.feed()
+            time.sleep(1)
+        delay = min(delay * 2, 60)
+
+    log("WiFi 연결됨: IP={}".format(wlan.ifconfig()[0]))
+    return wlan
+
+
+def buffer_append(payload):
+    """전송 실패한 측정값을 flash에 추가 저장."""
+    try:
+        try:
+            with open(BUFFER_FILE, "r") as f:
+                lines = f.readlines()
+        except OSError:
+            lines = []
+        lines.append(json.dumps(payload) + "\n")
+        if len(lines) > BUFFER_MAX:
+            lines = lines[-BUFFER_MAX:]
+        with open(BUFFER_FILE, "w") as f:
+            f.writelines(lines)
+    except OSError as e:
+        log("buffer 쓰기 실패: {}".format(e))
+
+
+def buffer_flush():
+    """버퍼링된 측정값을 한 번씩 재전송 시도. 성공하면 파일 비움."""
+    try:
+        with open(BUFFER_FILE, "r") as f:
+            lines = f.readlines()
+    except OSError:
+        return
+
+    if not lines:
+        return
+
+    log("버퍼 {}건 재전송 시도".format(len(lines)))
+    survivors = []
+    for line in lines:
+        wdt.feed()
+        try:
+            payload = json.loads(line)
+            if not send_once(payload, retry=False):
+                survivors.append(line)
+        except ValueError:
+            pass
+
+    try:
+        with open(BUFFER_FILE, "w") as f:
+            f.writelines(survivors)
+    except OSError:
+        pass
+
+
+def send_once(payload, retry=True):
+    """payload를 서버에 한 번 전송. 성공하면 True."""
+    try:
+        r = urequests.post(
+            secrets.SERVER_URL,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=5,
+        )
+        ok = 200 <= r.status_code < 300
+        r.close()
+        return ok
+    except Exception as e:
+        log("전송 실패: {}".format(e))
+        return False
+
+
+def measure():
+    """센서 1회 측정. 실패하면 None 필드로 반환."""
+    payload = {
+        "node_id": secrets.NODE_ID,
+        "ts": time.time(),
+        "temperature": None,
+        "humidity": None,
+        "light": None,
+    }
+    try:
+        t, rh = sensors.read_sht40()
+        payload["temperature"] = round(t, 2)
+        payload["humidity"] = round(rh, 2)
+    except Exception as e:
+        log("SHT40 오류: {}".format(e))
+
+    try:
+        payload["light"] = round(sensors.read_light(), 1)
+    except Exception as e:
+        log("Light 센서 오류: {}".format(e))
+
+    return payload
+
+
+def main():
+    log("부팅: node_id={}".format(secrets.NODE_ID))
+    log("I2C 스캔: {} (0x44 = SHT40 하나만 보이면 정상)".format(
+        [hex(a) for a in sensors.scan()]))
+
+    connect_wifi()
+
+    while True:
+        wdt.feed()
+
+        payload = measure()
+        log("측정: T={} RH={} light={}%".format(
+            payload["temperature"], payload["humidity"], payload["light"]))
+
+        if send_once(payload):
+            buffer_flush()
+        else:
+            buffer_append(payload)
+            wlan = network.WLAN(network.STA_IF)
+            if not wlan.isconnected():
+                connect_wifi()
+
+        elapsed = 0
+        while elapsed < secrets.INTERVAL_SEC:
+            wdt.feed()
+            time.sleep(1)
+            elapsed += 1
+
+
+main()
+```
+
+##### 핵심 한 줄 풀이
+
+이 코드의 가장 영리한 부분은 **`buffer.jsonl` 파일을 통한 오프라인 버퍼링**입니다. 서버나 WiFi가 잠시 죽어도, 측정값은 일단 Pico의 flash에 한 줄씩 차곡차곡 쌓입니다. 다음 번 전송이 성공하면 그 동안 쌓인 줄을 함께 보내고, 파일을 비웁니다. 학교 망이 점검 등으로 30분 끊기더라도 그 시간 동안의 데이터가 모두 살아남는 이유가 여기에 있습니다. 최대 200건(약 100분치)까지 보관하므로 그보다 긴 단절은 가장 오래된 데이터부터 잘려 나갑니다.
+
+또 하나 짚어 둘 부분은 **`WDT(timeout=8000)`** 한 줄입니다. ‘8초 안에 코드가 한 번이라도 `wdt.feed()`를 호출하지 않으면 보드를 강제로 재시작한다’는 약속을 마이크로파이썬에게 거는 명령입니다. 코드가 어떤 이유로든 무한 루프에 빠지면, 8초 뒤 보드가 스스로 살아나도록 합니다. 사람이 16개 교실을 매일 들여다보지 않아도 시스템이 스스로를 추스르도록 만드는 가장 작은 장치입니다.
+
+> **🧠 컴퓨팅 사고력 · 버퍼링과 와치독, 두 가지 ‘자기 치유’**
+>
+> 1. 오프라인 버퍼링(`buffer.jsonl`)은 ‘외부 환경(서버·WiFi)이 잠시 죽어도 데이터는 안 잃는다’는 약속입니다.
+> 2. 와치독 타이머(`WDT`)는 ‘내부 코드가 죽어도 보드는 다시 깨어난다’는 약속입니다.
+> 3. 두 가지가 함께 있을 때 우리는 ‘잊고 살 수 있는 노드 한 대’를 가지게 됩니다. 16대로 늘릴 때 사람의 손이 16배가 되지 않는 비결이 이 두 줄입니다.
+
 > **🤖 AI에게 물어보기 · 같은 파일을 16번 다른 값으로 만드는 방법**
 >
 > 1. 16개 교실 각각의 `secrets.py`를 손으로 16번 고치는 일은 지루합니다. 우리는 곧 Unit 3에서 ‘하나의 템플릿에서 16개의 파일을 자동으로 만드는 방법’을 보게 됩니다.
@@ -253,16 +562,16 @@ INTERVAL_SEC = 30                                              # 30초마다 측
 
 ```
 [12345] 부팅: node_id=PILOT
-[12450] I2C 스캔: ['0x44', '0x23']
+[12450] I2C 스캔: ['0x44'] (0x44 = SHT40 하나만 보이면 정상)
 [12500] WiFi 연결 시도: DanggokIoT
 [13200] WiFi 연결됨: IP=192.168.0.123
-[13800] 측정: T=24.31 RH=45.2 lux=287.5
+[13800] 측정: T=24.31 RH=45.2 light=42.7%
 ```
 
 이 다섯 줄이 5~15초 안에 차례로 나와야 합니다. 줄마다 어떤 의미가 담겨 있는지 한 번 짚어 봅니다.
 
 1. **부팅** — `secrets.py`의 `NODE_ID`가 정확히 읽혔다는 신호.
-2. **I2C 스캔** — `0x44`(SHT40)와 `0x23`(BH1750)이 모두 잡혔다는 신호. 둘 중 하나라도 빠지면 배선 단계로 돌아갑니다.
+2. **I2C 스캔** — `0x44`(SHT40)가 잡혔다는 신호. 빠지면 SHT40 배선 단계로 돌아갑니다. Grove Light Sensor는 I2C가 아니라 ADC라 이 줄에 안 나타나는 것이 정상입니다.
 3. **WiFi 연결 시도 / 연결됨** — 학교 무선망에 정상적으로 붙었다는 신호. IP가 보이지 않으면 SSID·패스워드를 다시 확인합니다.
 4. **측정** — 실제 센서값이 30초마다 한 줄씩 새로 찍히는 신호.
 
@@ -274,7 +583,7 @@ INTERVAL_SEC = 30                                              # 30초마다 측
 |---|---|
 | 온도 T | 15 ~ 35 °C |
 | 습도 RH | 20 ~ 80 %RH |
-| 조도 lux | 50 ~ 2,000 lux (형광등이 켜진 평일 낮 기준) |
+| 조도 light | 약 20 ~ 80 % (형광등이 켜진 평일 낮 기준 · 직사광 시 90% 이상) |
 
 극단값이 보이면(예: T가 -45.0 또는 130.0) 센서 read 자체가 실패한 것이고, 보통 케이블이 흔들렸기 때문입니다.
 
@@ -303,7 +612,7 @@ http://192.168.0.10:8000/nodes
 
 JSON 응답에 `PILOT` 노드가 한 줄 보이고, `last_seen`이 1분 이내라면 성공입니다.
 
-#### 코드 1-2
+#### 코드 1-4
 
 ```json
 [
@@ -314,7 +623,7 @@ JSON 응답에 `PILOT` 노드가 한 줄 보이고, `last_seen`이 1분 이내�
     "latest": {
       "temperature": 24.31,
       "humidity": 45.2,
-      "lux": 287.5
+      "light": 42.7
     }
   }
 ]
@@ -341,7 +650,7 @@ http://192.168.0.10:8501
 
 - [ ] 보드 본체 초록 LED가 켜져 있다
 - [ ] Thonny 셸에 30초마다 ‘측정’ 한 줄이 새로 찍힌다
-- [ ] I2C 스캔에 `0x44`와 `0x23`이 모두 보인다
+- [ ] I2C 스캔에 `0x44`(SHT40)가 보인다 — Grove Light Sensor는 ADC라 여기 안 나옴
 - [ ] WiFi 연결됨 메시지가 한 번 이상 나타났다
 - [ ] 대시보드의 ‘전체 교실’ 탭에 노드 카드가 보인다
 
@@ -350,7 +659,7 @@ http://192.168.0.10:8501
 ## 🛠 수정·확장 미션
 
 1. `INTERVAL_SEC`을 30에서 10으로 바꿔 봅니다. 측정 로그가 정말 10초마다 찍히나요?
-2. SHT40과 BH1750을 끼운 슬롯을 서로 바꿔 봅니다. 두 슬롯이 모두 I2C라면, 측정 결과는 어떻게 달라지나요?
+2. Grove Light Sensor를 A0 슬롯에서 A1(GP27) 슬롯으로 옮겨 꽂으면 어떻게 될지 예측하고, 실제로 바꿔 본 뒤 `sensors.py`의 `LIGHT_ADC_PIN`도 27로 바꿔 봅니다.
 3. USB를 뽑고 1분 동안 기다린 뒤 다시 꽂아 봅니다. 같은 NODE_ID 카드의 ‘마지막 수신’ 시각이 어떻게 변하는지 관찰합니다.
 
 ## 🌟 리터러시 모먼트
@@ -372,7 +681,7 @@ http://192.168.0.10:8501
 
 ## 연습문제
 
-**1.** I2C 스캔에 `0x44`만 보이고 `0x23`이 안 보이는 상황을 가정해 봅니다. 가장 먼저 의심해야 할 한 가지는 무엇인가요?
+**1.** I2C 스캔에 아무것도 안 보이는 상황을 가정해 봅니다. SHT40 배선에서 가장 먼저 의심해야 할 한 가지는 무엇인가요?
 
 **2.** `secrets.py`의 `NODE_ID`를 `"1-1"`로, 또 다른 보드는 `"1-2"`로 채웠습니다. 두 보드가 같은 WiFi에 동시에 붙어 있을 때, 서버의 `/nodes` 응답에는 카드가 몇 장 보일까요?
 
