@@ -1,19 +1,21 @@
 """
-교실 환경 대시보드 — Streamlit (학교 전체 한눈에).
+교실 환경 대시보드 — Streamlit (학교 전체 인사이트형).
 
-레이아웃:
-- 상단 KPI 6칸 (총 노드 / 위반 / 평균 T·RH·Light / 마지막 갱신)
-- 학년별 행 그리드 (1학년 1~8반, 2학년 1~8반, 3학년 1~8반)
-  각 셀: NODE_ID + 온도·습도·조도 한 줄씩, 기준 색상
-- 학교 전체 최근 1시간 시계열 (온도·습도·조도)
-- 🚨 현재 기준 위반 노드 테이블
+탭 구성:
+1. 🏫 학교 전체 — KPI + 학년별 그리드(현재값 + 30분 5칸 추세) + 위반 + 환기 추천
+2. 🔍 교실 상세 — 1개 노드의 시계열
+3. 🧪 분석팀 작업장 — 다중 교실 비교·누적 위반
+4. 🔥 패턴 히트맵 — 시간대 × 교실 히트맵 (캠페인 우선순위 발견 도구)
 
-학교보건법 시행규칙 기준 (별표 2):
-- 온도 18~28°C / 습도 30~80% / 조도 권장 30%+ (자체)
+설계 의도:
+- ‘지금 우리 학교가 어디서 안 좋은가’가 1초 안에 보이게
+- 카드 안의 5칸 추세 띠로 ‘방금 환기 효과가 있었나’가 즉시 보이게
+- 위반 시간 누적·히트맵으로 데이터 기반 캠페인 의사결정 지원
 """
 
 from datetime import datetime, timezone, timedelta
 
+import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
@@ -27,31 +29,46 @@ ROOMS_PER_GRADE = 8
 LIMITS = {
     "temperature": {"min": 18, "max": 28, "unit": "°C", "label": "온도"},
     "humidity":    {"min": 30, "max": 80, "unit": "%RH", "label": "습도"},
-    "light":       {"min": 30, "max": None, "unit": "%", "label": "조도(상대)"},
+    "light":       {"min": 30, "max": None, "unit": "%", "label": "조도"},
 }
+
+# 추세 띠 설정
+TREND_WINDOW_MIN = 30   # 카드 안의 띠가 다루는 시간 범위
+TREND_SLOTS = 5         # 5칸 (각 6분 평균)
+
 
 st.set_page_config(page_title="기후행동365 대시보드",
                    page_icon="🌱", layout="wide")
 
 # ---------- 스타일 ----------
 st.markdown("""<style>
-.block-container{padding-top:1.5rem;padding-bottom:1rem;}
+.block-container{padding-top:1.5rem;padding-bottom:1rem;max-width:1500px;}
 .grade-header{font-size:1.05em;color:#444;font-weight:700;
               border-left:5px solid #2ecc71;padding:0.35em 0.7em;
-              margin:1.2em 0 0.4em;background:#f6fbf8;border-radius:3px;}
-.room-card{background:#fff;padding:0.6em 0.3em 0.5em;border-radius:8px;
-           box-shadow:0 1px 3px rgba(0,0,0,0.06);text-align:center;
-           min-height:7em;border:1px solid #eee;}
+              margin:1.2em 0 0.5em;background:#f6fbf8;border-radius:3px;}
+.room-card{background:#fff;padding:0.55em 0.45em;border-radius:10px;
+           box-shadow:0 1px 3px rgba(0,0,0,0.07);text-align:left;
+           min-height:9.5em;border:1px solid #eee;}
 .room-card.stale{background:#fff5f5;border:1px solid #fcc;}
-.room-id{font-size:0.78em;color:#666;font-weight:700;margin-bottom:0.3em;}
-.room-empty{color:#bbb;font-size:0.78em;padding-top:1.4em;}
-.metric-row{font-size:0.95em;padding:0.05em 0;font-weight:600;
-            font-variant-numeric:tabular-nums;line-height:1.4;}
-.metric-row .lab{font-size:0.7em;color:#aaa;font-weight:400;margin-right:0.15em;}
+.room-card.empty{background:#fafafa;border:1px dashed #ddd;}
+.room-id{font-size:0.85em;color:#333;font-weight:700;margin-bottom:0.3em;
+         display:flex;justify-content:space-between;align-items:center;}
+.room-tag{font-size:0.65em;color:#888;background:#f0f0f0;padding:1px 5px;
+          border-radius:8px;font-weight:500;}
+.room-tag.vent{background:#fff3cd;color:#856404;}
+.room-empty{color:#bbb;font-size:0.8em;padding:2em 0;text-align:center;}
+.metric-row{display:flex;align-items:center;gap:0.35em;
+            font-size:0.85em;padding:0.1em 0;
+            font-variant-numeric:tabular-nums;}
+.metric-lab{font-size:0.7em;color:#999;font-weight:500;width:1em;}
+.metric-val{font-weight:700;width:3em;text-align:right;}
+.metric-unit{font-size:0.7em;color:#aaa;}
+.trend-strip{display:inline-flex;gap:2px;margin-left:0.3em;}
+.trend-cell{width:9px;height:11px;border-radius:2px;}
 </style>""", unsafe_allow_html=True)
 
 
-# ---------- 데이터 ----------
+# ---------- 데이터 fetch ----------
 @st.cache_data(ttl=15)
 def fetch_nodes():
     r = requests.get(f"{SERVER_URL}/nodes", timeout=5)
@@ -60,11 +77,11 @@ def fetch_nodes():
 
 
 @st.cache_data(ttl=15)
-def fetch_readings(node_id=None, since_minutes=60):
-    params = {"since_minutes": since_minutes, "limit": 20000}
-    if node_id:
-        params["node_id"] = node_id
-    r = requests.get(f"{SERVER_URL}/readings", params=params, timeout=10)
+def fetch_all_recent(since_minutes=60):
+    """모든 노드 + 모든 컬럼 최근 N분. 한 번에."""
+    r = requests.get(f"{SERVER_URL}/readings",
+                     params={"since_minutes": since_minutes, "limit": 50000},
+                     timeout=15)
     r.raise_for_status()
     df = pd.DataFrame(r.json())
     if not df.empty:
@@ -72,10 +89,25 @@ def fetch_readings(node_id=None, since_minutes=60):
     return df
 
 
+@st.cache_data(ttl=15)
+def fetch_node_readings(node_id, since_minutes=1440):
+    r = requests.get(f"{SERVER_URL}/readings",
+                     params={"node_id": node_id,
+                             "since_minutes": since_minutes,
+                             "limit": 50000},
+                     timeout=15)
+    r.raise_for_status()
+    df = pd.DataFrame(r.json())
+    if not df.empty:
+        df["received_at"] = pd.to_datetime(df["received_at"])
+    return df
+
+
+# ---------- 헬퍼 ----------
 def status_for(metric, value):
-    """기준 대비 (색상, 레벨)."""
-    if value is None:
-        return ("#bbb", "없음")
+    """(색상, 레벨) 반환."""
+    if value is None or pd.isna(value):
+        return ("#e8e8e8", "없음")
     lim = LIMITS[metric]
     if lim["min"] is not None and value < lim["min"]:
         return ("#3498db", "낮음")
@@ -94,14 +126,84 @@ def is_stale(last_seen_iso, threshold_min=5):
     return (datetime.now(timezone.utc) - last) > timedelta(minutes=threshold_min)
 
 
+def trend_colors(df_node, metric, slots=TREND_SLOTS,
+                 window_min=TREND_WINDOW_MIN):
+    """노드 데이터프레임에서 최근 window_min분을 slots칸으로 나눠
+    각 칸의 평균값에 해당하는 색상 리스트 반환. 데이터 없으면 회색."""
+    if df_node.empty or metric not in df_node.columns:
+        return ["#e8e8e8"] * slots
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(minutes=window_min)
+    df_w = df_node[(df_node["received_at"] >= start)
+                   & (df_node["received_at"] <= end)]
+    if df_w.empty:
+        return ["#e8e8e8"] * slots
+    slot_min = window_min / slots
+    out = []
+    for i in range(slots):
+        s_start = start + timedelta(minutes=slot_min * i)
+        s_end = start + timedelta(minutes=slot_min * (i + 1))
+        mask = ((df_w["received_at"] >= s_start)
+                & (df_w["received_at"] < s_end))
+        slot_df = df_w[mask]
+        if slot_df.empty:
+            out.append("#e8e8e8")
+            continue
+        mean = slot_df[metric].mean()
+        color, _ = status_for(metric, mean)
+        out.append(color)
+    return out
+
+
+def violation_minutes_today(df_node, metric):
+    """오늘 기준 위반 누적 시간(분). 측정 주기를 1건당 30초로 가정."""
+    if df_node.empty or metric not in df_node.columns:
+        return 0
+    today_start = datetime.now(timezone.utc).replace(
+        hour=15, minute=0, second=0, microsecond=0
+    ) - timedelta(days=1)
+    # KST 자정 = UTC 전날 15:00. 단순화를 위해 24h만.
+    today_start = datetime.now(timezone.utc) - timedelta(hours=24)
+    df_t = df_node[df_node["received_at"] >= today_start]
+    if df_t.empty:
+        return 0
+    lim = LIMITS[metric]
+    cnt = 0
+    if lim["max"] is not None:
+        cnt += int((df_t[metric] > lim["max"]).sum())
+    if lim["min"] is not None:
+        cnt += int((df_t[metric] < lim["min"]).sum())
+    # 30초 주기 기준
+    return cnt * 0.5  # 분 단위
+
+
+def needs_ventilation(latest):
+    """단순 환기 추천: 온도↑ 그리고 습도↑ 동시 발생."""
+    t = latest.get("temperature")
+    rh = latest.get("humidity")
+    if t is None or rh is None:
+        return False
+    return (t > LIMITS["temperature"]["max"] - 1.5
+            and rh > LIMITS["humidity"]["max"] - 5)
+
+
 # ---------- 헤더 ----------
 st.title("🌱 당곡고 기후행동365 — 학교 전체 환경")
-st.caption("학교보건법 시행규칙 별표 2 기준 · Phase 1 (온습도 + 조도)")
+st.caption(
+    "학교보건법 시행규칙 별표 2 기준 · Phase 1 (온습도 + 조도) · "
+    "5칸 띠 = 최근 30분(6분씩 5구간 평균)"
+)
 
-tab1, tab2, tab3 = st.tabs(["🏫 학교 전체", "🔍 교실 상세", "🧪 분석팀 작업장"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🏫 학교 전체",
+    "🔍 교실 상세",
+    "🧪 분석팀 작업장",
+    "🔥 패턴 히트맵",
+])
+
 
 # ====================================================================
-# TAB 1 — 학교 전체 (학년별 그리드)
+# TAB 1 — 학교 전체
 # ====================================================================
 with tab1:
     try:
@@ -114,13 +216,26 @@ with tab1:
     total = len(GRADES) * ROOMS_PER_GRADE
     online = sum(1 for n in nodes if not is_stale(n["last_seen"]))
 
-    # 위반·평균 집계
+    # 최근 30분 모든 노드 데이터 (5칸 띠용)
+    df_recent = fetch_all_recent(since_minutes=TREND_WINDOW_MIN)
+    df_recent_by_node = (df_recent.groupby("node_id")
+                         if not df_recent.empty else None)
+
+    # 오늘 24h 데이터 (누적 위반 시간)
+    df_today = fetch_all_recent(since_minutes=24 * 60)
+    today_by_node = (df_today.groupby("node_id")
+                     if not df_today.empty else None)
+
+    # 위반 + 평균 집계
     violations = []
     all_t, all_rh, all_lt = [], [], []
+    vent_nodes = []
     for n in nodes:
         if is_stale(n["last_seen"]):
             continue
         latest = n.get("latest") or {}
+        if needs_ventilation(latest):
+            vent_nodes.append(n["node_id"])
         for metric in ("temperature", "humidity", "light"):
             v = latest.get(metric)
             if v is None:
@@ -140,24 +255,25 @@ with tab1:
             elif metric == "humidity": all_rh.append(v)
             elif metric == "light":   all_lt.append(v)
 
-    danger_nodes = len({v["교실"] for v in violations})
+    danger_rooms = len({v["교실"] for v in violations})
 
-    # ---------- KPI 6칸 ----------
+    # ---------- KPI ----------
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("📡 온라인 노드", f"{online} / {total}",
+    c1.metric("📡 온라인", f"{online} / {total}",
               help="최근 5분 내 수신 / 예상 전체")
-    c2.metric("🚨 기준 초과", f"{danger_nodes} 교실",
-              delta=f"{len(violations)}건" if violations else "—",
+    c2.metric("🚨 기준 초과", f"{danger_rooms} 교실",
+              delta=f"{len(violations)}건" if violations else None,
               delta_color="inverse")
-    c3.metric("🌡️ 평균 온도",
-              f"{sum(all_t)/len(all_t):.1f}°C" if all_t else "—")
-    c4.metric("💧 평균 습도",
-              f"{sum(all_rh)/len(all_rh):.0f}%" if all_rh else "—")
-    c5.metric("💡 평균 조도",
-              f"{sum(all_lt)/len(all_lt):.0f}%" if all_lt else "—")
-    c6.metric("🕐 갱신", datetime.now().strftime("%H:%M:%S"))
+    c3.metric("💨 환기 권장", f"{len(vent_nodes)} 교실",
+              help="현재 온도·습도 모두 기준 가까이")
+    c4.metric("🌡️ 평균 온도",
+              f"{np.mean(all_t):.1f}°C" if all_t else "—")
+    c5.metric("💧 평균 습도",
+              f"{np.mean(all_rh):.0f}%" if all_rh else "—")
+    c6.metric("💡 평균 조도",
+              f"{np.mean(all_lt):.0f}%" if all_lt else "—")
 
-    # ---------- 학년별 행 그리드 ----------
+    # ---------- 학년별 그리드 (현재값 + 5칸 추세 띠) ----------
     st.markdown("###  ")
     for grade in GRADES:
         st.markdown(
@@ -171,49 +287,76 @@ with tab1:
             with cols[room - 1]:
                 if node is None:
                     st.markdown(
-                        f'<div class="room-card">'
+                        f'<div class="room-card empty">'
                         f'<div class="room-id">{node_id}</div>'
-                        f'<div class="room-empty">미설치</div>'
-                        f'</div>',
+                        f'<div class="room-empty">미설치</div></div>',
                         unsafe_allow_html=True,
                     )
                     continue
+
                 stale = is_stale(node["last_seen"])
                 latest = node.get("latest") or {}
-                t = latest.get("temperature")
-                rh = latest.get("humidity")
-                lt = latest.get("light")
+
+                # 노드 30분 데이터
+                if (df_recent_by_node is not None
+                        and node_id in df_recent_by_node.groups):
+                    df_n = df_recent_by_node.get_group(node_id)
+                else:
+                    df_n = pd.DataFrame()
+
+                # 환기 라벨
+                vent_label = ""
+                if needs_ventilation(latest):
+                    vent_label = '<span class="room-tag vent">💨 환기</span>'
 
                 cls = "room-card stale" if stale else "room-card"
                 badge = "🚨 " if stale else ""
-                html = (f'<div class="{cls}">'
-                        f'<div class="room-id">{badge}{node_id}</div>')
 
-                for label, val, fmt, metric in [
-                    ("T",  t,  "{:.1f}", "temperature"),
-                    ("RH", rh, "{:.0f}", "humidity"),
-                    ("L",  lt, "{:.0f}", "light"),
+                html = (
+                    f'<div class="{cls}">'
+                    f'<div class="room-id">'
+                    f'<span>{badge}{node_id}</span>{vent_label}</div>'
+                )
+
+                for label, val, fmt, unit, metric in [
+                    ("T",  latest.get("temperature"), "{:.1f}", "°", "temperature"),
+                    ("H",  latest.get("humidity"),    "{:.0f}", "%", "humidity"),
+                    ("L",  latest.get("light"),       "{:.0f}", "%", "light"),
                 ]:
-                    if val is None:
-                        html += '<div class="metric-row">—</div>'
-                    else:
-                        color, _ = status_for(metric, val)
-                        html += (f'<div class="metric-row" style="color:{color}">'
-                                 f'<span class="lab">{label}</span>'
-                                 f'{fmt.format(val)}</div>')
+                    color, _ = status_for(metric, val)
+                    strip = ''.join(
+                        f'<span class="trend-cell" style="background:{c}"></span>'
+                        for c in trend_colors(df_n, metric)
+                    )
+                    val_s = fmt.format(val) if val is not None else "—"
+                    html += (
+                        f'<div class="metric-row">'
+                        f'<span class="metric-lab">{label}</span>'
+                        f'<span class="metric-val" style="color:{color}">{val_s}</span>'
+                        f'<span class="metric-unit">{unit}</span>'
+                        f'<span class="trend-strip">{strip}</span>'
+                        f'</div>'
+                    )
                 html += '</div>'
                 st.markdown(html, unsafe_allow_html=True)
 
-    # ---------- 학교 전체 시계열 ----------
+    # 5칸 추세 띠 범례
+    st.caption(
+        "📖 카드 안의 5칸 띠 = 최근 30분을 6분씩 5구간으로 나눈 평균 색상 (좌→우 = 과거→현재). "
+        "🟩 적정 · 🟧/🟥 기준 밖 · ⬜ 데이터 없음. "
+        "환기 권장은 온도·습도가 동시에 기준 가까이 닿을 때 자동 표시."
+    )
+
+    # ---------- 학교 전체 1시간 시계열 ----------
     st.markdown("###  ")
     st.subheader("📈 최근 1시간 · 학교 전체 평균")
 
-    df_all = fetch_readings(since_minutes=60)
-    if df_all.empty:
+    df_1h = fetch_all_recent(since_minutes=60)
+    if df_1h.empty:
         st.info("최근 1시간 동안 수신된 데이터가 없습니다.")
     else:
-        df_all = df_all.sort_values("received_at")
-        minute_avg = (df_all.set_index("received_at")
+        df_1h = df_1h.sort_values("received_at")
+        minute_avg = (df_1h.set_index("received_at")
                             .resample("1min")
                             .mean(numeric_only=True))
         cc1, cc2, cc3 = st.columns(3)
@@ -230,9 +373,38 @@ with tab1:
                 st.caption("💡 조도 (%) · 자체 기준 ≥30")
                 st.line_chart(minute_avg[["light"]], height=180)
 
-    # ---------- 위반 알림 ----------
+    # ---------- 오늘 누적 위반 시간 (캠페인 우선순위) ----------
     st.markdown("###  ")
-    st.subheader("🚨 현재 기준 위반")
+    st.subheader("⏱️ 오늘 누적 기준 위반 시간 — 환기·소등 캠페인 우선순위")
+
+    if today_by_node is None:
+        st.info("오늘 데이터가 없습니다.")
+    else:
+        rows = []
+        for n in nodes:
+            nid = n["node_id"]
+            if nid not in today_by_node.groups:
+                continue
+            df_t = today_by_node.get_group(nid)
+            rows.append({
+                "교실": nid,
+                "온도 초과(분)": int(violation_minutes_today(df_t, "temperature")),
+                "습도 이탈(분)": int(violation_minutes_today(df_t, "humidity")),
+                "조도 부족(분)": int(violation_minutes_today(df_t, "light")),
+            })
+        if rows:
+            df_rank = pd.DataFrame(rows)
+            df_rank["합계(분)"] = (df_rank["온도 초과(분)"]
+                                   + df_rank["습도 이탈(분)"]
+                                   + df_rank["조도 부족(분)"])
+            df_rank = df_rank.sort_values("합계(분)", ascending=False)
+            st.dataframe(df_rank, hide_index=True, use_container_width=True)
+        else:
+            st.success("오늘 모든 노드가 기준 안에 있었습니다.")
+
+    # ---------- 현재 기준 위반 ----------
+    st.markdown("###  ")
+    st.subheader("🚨 지금 기준 위반 중")
     if violations:
         st.dataframe(
             pd.DataFrame(violations).sort_values(["상태", "교실"]),
@@ -240,13 +412,6 @@ with tab1:
         )
     else:
         st.success("✅ 모든 온라인 노드가 학교보건법 기준 안에 있습니다.")
-
-    st.caption(
-        f"📊 학교보건법 시행규칙 별표 2 — "
-        f"온도 {LIMITS['temperature']['min']}~{LIMITS['temperature']['max']}°C, "
-        f"습도 {LIMITS['humidity']['min']}~{LIMITS['humidity']['max']}%RH, "
-        f"책상면 조도 300 lux 이상 (Grove Light Sensor는 상대%라 자체 임계값 설계 필요)"
-    )
 
 
 # ====================================================================
@@ -260,19 +425,16 @@ with tab2:
         node_ids = sorted([n["node_id"] for n in nodes])
         selected = st.selectbox("교실 선택", node_ids)
         hours = st.slider("최근 N시간", 1, 72, 24)
-        df = fetch_readings(node_id=selected, since_minutes=hours * 60)
-
+        df = fetch_node_readings(selected, since_minutes=hours * 60)
         if df.empty:
             st.info("해당 기간 데이터 없음")
         else:
             df = df.sort_values("received_at")
             st.subheader(f"📍 {selected} — 최근 {hours}시간")
-
             c1, c2, c3 = st.columns(3)
             c1.metric("온도 (°C)", f"{df['temperature'].iloc[-1]:.1f}")
             c2.metric("습도 (%RH)", f"{df['humidity'].iloc[-1]:.1f}")
             c3.metric("조도 (%)", f"{df['light'].iloc[-1]:.1f}")
-
             st.line_chart(df.set_index("received_at")[["temperature"]],
                           height=200)
             st.line_chart(df.set_index("received_at")[["humidity"]],
@@ -306,7 +468,7 @@ with tab3:
         if selected_nodes:
             frames = []
             for nid in selected_nodes:
-                d = fetch_readings(node_id=nid, since_minutes=hours * 60)
+                d = fetch_node_readings(nid, since_minutes=hours * 60)
                 if not d.empty:
                     frames.append(d[["received_at", metric]].assign(node_id=nid))
             if frames:
@@ -335,3 +497,56 @@ with tab3:
                 )
             else:
                 st.info("선택한 교실에 데이터 없음")
+
+
+# ====================================================================
+# TAB 4 — 패턴 히트맵 (신규)
+# ====================================================================
+with tab4:
+    st.markdown(
+        "**시간대 × 교실**의 패턴 히트맵입니다. "
+        "‘월요일 5교시가 가장 더운가?’ ‘1학년 복도 쪽이 항상 어두운가?’ 같은 "
+        "패턴을 한 장으로 가립니다. 캠페인 우선순위 결정의 출발점."
+    )
+    metric = st.selectbox(
+        "지표", list(LIMITS.keys()),
+        format_func=lambda m: LIMITS[m]["label"],
+        key="heatmap_metric",
+    )
+    days = st.slider("최근 N일", 1, 14, 7, key="heatmap_days")
+
+    df_h = fetch_all_recent(since_minutes=days * 24 * 60)
+    if df_h.empty:
+        st.info(f"최근 {days}일 데이터 없음")
+    else:
+        df_h["hour"] = df_h["received_at"].dt.hour
+        pivot = (df_h.pivot_table(index="node_id", columns="hour",
+                                  values=metric, aggfunc="mean")
+                      .reindex(sorted(df_h["node_id"].unique())))
+        # 0~23시 컬럼 모두 보장
+        for h in range(24):
+            if h not in pivot.columns:
+                pivot[h] = np.nan
+        pivot = pivot[list(range(24))]
+
+        st.caption(
+            f"평균 {LIMITS[metric]['label']} · 행=교실(NODE_ID 정렬) · 열=0~23시"
+        )
+
+        # Streamlit native — DataFrame 색상으로 시각화
+        styled = pivot.style.background_gradient(
+            cmap="RdYlGn_r" if metric != "light" else "YlOrBr",
+            axis=None, vmin=pivot.min().min(), vmax=pivot.max().max(),
+        ).format("{:.1f}")
+        st.dataframe(styled, use_container_width=True, height=600)
+
+        # 시간대별 위반 빈도 (캠페인 타깃 시간대)
+        st.subheader("⏰ 시간대별 위반 빈도 — 어느 교시에 가장 자주 깨지나")
+        lim = LIMITS[metric]
+        df_h["viol"] = False
+        if lim["max"] is not None:
+            df_h["viol"] |= (df_h[metric] > lim["max"])
+        if lim["min"] is not None:
+            df_h["viol"] |= (df_h[metric] < lim["min"])
+        per_hour = df_h.groupby("hour")["viol"].sum()
+        st.bar_chart(per_hour, height=200)
