@@ -34,3 +34,6 @@ buffer.jsonl
 
 # Backup
 /mnt/backup/
+
+# WiFi 패스워드·서버 IP 등 사용자 환경 정보
+prototype/firmware/secrets.py
