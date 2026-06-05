@@ -44,12 +44,14 @@ st.set_page_config(page_title="기후행동365 대시보드",
 
 # ---------- 스타일 ----------
 st.markdown("""<style>
-.block-container{padding-top:0.6rem;padding-bottom:0.5rem;max-width:1500px;
+.block-container{padding-top:0.9rem;padding-bottom:0.5rem;max-width:1500px;
                  padding-left:0.7rem;padding-right:0.7rem;}
 /* ----- 헤더 컴팩트 ----- */
-h1{font-size:1.4em !important;margin:0.1em 0 0.2em !important;
-   font-weight:700;}
+h1{font-size:1.45em !important;margin:0.2em 0 0.25em !important;
+   font-weight:700;line-height:1.45 !important;padding:0.1em 0 !important;}
 [data-testid="stCaptionContainer"]{margin-bottom:0.2em;}
+/* 빈 markdown 헤더(### ) 간격 줄이기 */
+h3{margin-top:0.4em !important;margin-bottom:0.2em !important;}
 /* KPI metric 컴팩트 */
 [data-testid="stMetric"]{padding:0.2em 0.4em;}
 [data-testid="stMetricLabel"]{font-size:0.78em !important;}
@@ -591,7 +593,7 @@ with tab1:
                     "지표": lim["label"],
                     "현재값": f"{v:.1f}{lim['unit']}",
                     "상태": level,
-                    "기준": (f"{lim['min']}–{lim['max']}{lim['unit']}"
+                    "기준": (f"{lim['min']}-{lim['max']}{lim['unit']}"
                              if lim['max'] else f"≥{lim['min']}{lim['unit']}"),
                 })
             if metric == "temperature": all_t.append(v)
@@ -622,7 +624,6 @@ with tab1:
               f"{np.mean(all_lt):.0f}%" if all_lt else "—")
 
     # ---------- 학년별 반응형 그리드 (현재값 + 5칸 추세 띠) ----------
-    st.markdown("###  ")
     for grade in GRADES:
         st.markdown(
             f'<div class="grade-header">📚 {grade}학년</div>',
@@ -734,14 +735,13 @@ with tab1:
     st.caption(
         "📖 카드 안의 5칸 띠 = 최근 30분을 6분씩 5구간 평균 (좌→우 = 과거→현재). "
         "🟩 적정 · 🟧/🟥 기준 밖 · ⬜ 데이터 없음. "
-        f"적정 범위: 🌡️ {LIMITS['temperature']['min']}–{LIMITS['temperature']['max']}°C · "
-        f"💧 {LIMITS['humidity']['min']}–{LIMITS['humidity']['max']}%RH · "
+        f"적정 범위: 🌡️ {LIMITS['temperature']['min']}-{LIMITS['temperature']['max']}°C · "
+        f"💧 {LIMITS['humidity']['min']}-{LIMITS['humidity']['max']}%RH · "
         f"💡 ≥{LIMITS['light']['min']}% "
         "(사이드바 ‘🎚️ 경고 기준 조정’에서 변경)"
     )
 
     # ---------- 학교 전체 1시간 시계열 (plotly) ----------
-    st.markdown("###  ")
     st.subheader("📈 최근 1시간 · 학교 전체 평균")
 
     df_1h = fetch_all_recent(since_minutes=60)
@@ -787,7 +787,7 @@ with tab1:
         t_lim = LIMITS["temperature"]; h_lim = LIMITS["humidity"]; l_lim = LIMITS["light"]
         if "temperature" in minute_avg.columns:
             with cc1:
-                st.caption(f"🌡️ 온도 (°C) · 적정 {t_lim['min']}–{t_lim['max']}")
+                st.caption(f"🌡️ 온도 (°C) · 적정 {t_lim['min']}-{t_lim['max']}")
                 st.plotly_chart(
                     line_with_bands(minute_avg["temperature"],
                                     "#e74c3c", ymin=t_lim['min'], ymax=t_lim['max']),
@@ -795,7 +795,7 @@ with tab1:
                 )
         if "humidity" in minute_avg.columns:
             with cc2:
-                st.caption(f"💧 습도 (%RH) · 적정 {h_lim['min']}–{h_lim['max']}")
+                st.caption(f"💧 습도 (%RH) · 적정 {h_lim['min']}-{h_lim['max']}")
                 st.plotly_chart(
                     line_with_bands(minute_avg["humidity"],
                                     "#3498db", ymin=h_lim['min'], ymax=h_lim['max']),
@@ -811,7 +811,6 @@ with tab1:
                 )
 
     # ---------- 오늘 누적 위반 시간 (캠페인 우선순위) ----------
-    st.markdown("###  ")
     st.subheader("⏱️ 오늘 누적 기준 위반 시간 — 환기·소등 캠페인 우선순위")
 
     if today_by_node is None:
@@ -840,7 +839,6 @@ with tab1:
             st.success("오늘 모든 노드가 기준 안에 있었습니다.")
 
     # ---------- 에너지 낭비 알림 ----------
-    st.markdown("###  ")
     if current_class:
         st.subheader(f"⚡ 에너지 낭비 의심 — 지금은 {current_class} 중")
         st.caption(
@@ -878,7 +876,6 @@ with tab1:
             )
 
     # ---------- 현재 기준 위반 ----------
-    st.markdown("###  ")
     st.subheader("🚨 지금 기준 위반 중")
     if violations:
         st.dataframe(
