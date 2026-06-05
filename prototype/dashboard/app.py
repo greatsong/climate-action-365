@@ -16,6 +16,13 @@
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+try:
+    from zoneinfo import ZoneInfo
+    KST = ZoneInfo("Asia/Seoul")
+except Exception:
+    # 폴백: ZoneInfo 사용 불가 시 고정 +9 오프셋
+    KST = timezone(timedelta(hours=9))
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -299,8 +306,9 @@ def needs_ventilation(latest):
 
 
 def kst_now():
-    """현재 시각 (Pi 5 timezone이 Asia/Seoul로 설정되어 있다고 가정)."""
-    return datetime.now()
+    """항상 한국 표준시(KST) 기준 현재 시각.
+    Pi의 timezone 설정과 무관하게 ZoneInfo('Asia/Seoul')를 명시."""
+    return datetime.now(KST).replace(tzinfo=None)
 
 
 # ---------- 헤더 ----------
