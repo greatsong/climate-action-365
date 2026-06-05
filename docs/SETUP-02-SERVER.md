@@ -1,15 +1,17 @@
-# SETUP-02 — 라즈베리파이 4 서버 설치
+# SETUP-02 — 라즈베리파이 5 16GB 서버 설치
 
 > 16개 교실 노드의 데이터를 수집·저장·시각화하는 중앙 서버를 만듭니다.
 > 한 번 셋업하면 24/7 자동 가동되도록 systemd 서비스로 등록합니다.
+> **Pi 5 16GB 기준**. Pi 4를 쓰는 경우 EEPROM 단계와 쿨링·전원 부분만 건너뛰면 됩니다.
 
 ## 준비물
 
 | 항목 | 비고 |
 |---|---|
-| Raspberry Pi 4 (4GB) | 정품 |
+| **Raspberry Pi 5 (16GB)** | 정품 / 디바이스마트 등 |
 | microSD 64GB (Sandisk High Endurance) | 산업용 권장, 24/7 쓰기 견딤 |
-| 5V/3A USB-C 어댑터 | Pi4 정품급 |
+| **USB-C 5V/5A PD 27W 어댑터** | Pi 4 어댑터(5V/3A) 호환 불가 |
+| **액티브 쿨러 포함 케이스** | 공식 Active Cooler 또는 Argon NEO 5 |
 | Micro HDMI → HDMI 케이블 | 초기 설정만 사용 |
 | 모니터 + USB 키보드 | 초기 설정만 사용 (없으면 헤드리스 가능) |
 | 컴퓨터 (Raspberry Pi Imager 실행용) | |
@@ -29,7 +31,7 @@
 1. microSD를 컴퓨터에 연결 (USB 어댑터 사용)
 2. **Raspberry Pi Imager** 실행
 3. 세 가지 선택:
-   - **CHOOSE DEVICE**: Raspberry Pi 4
+   - **CHOOSE DEVICE**: **Raspberry Pi 5**
    - **CHOOSE OS**: `Raspberry Pi OS (other)` → **Raspberry Pi OS Lite (64-bit)** 선택
      - GUI 불필요 (헤드리스 운영)
      - "Lite"는 데스크탑 환경 없는 가벼운 버전
@@ -63,26 +65,42 @@
 
 ---
 
-## 단계 2 · 첫 부팅
+## 단계 2 · 첫 부팅 + EEPROM 업데이트
 
 ### 2.1 하드웨어 연결
 
-1. microSD를 Pi 4에 삽입 (보드 아래쪽 슬롯)
+1. microSD를 Pi 5에 삽입 (보드 아래쪽 슬롯)
 2. HDMI 모니터 연결 (Micro HDMI는 Pi의 **HDMI0** 포트)
 3. USB 키보드 연결
 4. **LAN 케이블 연결 (강력 권장)** — 학교 망 유선 콘센트
-5. 5V/3A USB-C 어댑터 연결 → 자동 부팅
+5. **5V/5A USB-C PD 27W 어댑터** 연결 → 자동 부팅
 
 ### 2.2 첫 부팅 (5~10분)
 
 - 화면에 부팅 로그가 흐르다가 자동 재부팅 1~2회
+- 부팅 직후 다음 메시지가 잠깐 보일 수 있음:
+  ```
+  This power supply is not capable of supplying 5A;
+  power to peripherals will be restricted.
+  ```
+  - 정품 27W 어댑터를 쓰고 있다면 사라짐. 그래도 보이면 어댑터 재확인.
 - 최종적으로 로그인 프롬프트:
   ```
   climate365 login:
   ```
 - 위에서 설정한 username/password로 로그인
 
-### 2.3 네트워크 확인
+### 2.3 EEPROM 업데이트 (Pi 5 첫 1회만)
+
+```bash
+sudo rpi-eeprom-update -a
+sudo reboot
+```
+
+- 메시지가 ‘이미 최신’이면 그대로 두면 됨
+- 업데이트가 적용되면 자동 재부팅 후 SSH 재접속
+
+### 2.4 네트워크 확인
 
 ```bash
 hostname -I
@@ -439,9 +457,23 @@ htop          # CPU·메모리 (q로 종료)
 df -h         # 디스크 여유 (microSD)
 du -sh /home/pi/climate-action-365/prototype/server/data.db
               # DB 파일 크기
+free -h       # 16GB 중 얼마나 비어 있는가
 ```
 
-### 13.3 데이터 직접 조회
+`free -h`의 ‘available’ 칸이 14~15GB 정도 남아 있어야 정상. Phase 1 동안 거의 그대로 유지.
+
+### 13.3 쿨링 모니터링 ⭐ (Pi 5)
+
+```bash
+vcgencmd measure_temp
+# 예: temp=48.3'C
+```
+
+- 평상 50°C 이하 정상
+- 60~70°C 부담 없음
+- 80°C 넘으면 액티브 쿨러 동작·케이스 통풍 점검 필요
+
+### 13.4 데이터 직접 조회
 
 ```bash
 sqlite3 /home/pi/climate-action-365/prototype/server/data.db
@@ -452,7 +484,7 @@ SELECT node_id, received_at, temperature, humidity, lux FROM readings ORDER BY r
 .quit
 ```
 
-### 13.4 디스크 사용량 추정
+### 13.5 디스크 사용량 추정
 
 - 측정 1건 ≈ 200바이트
 - 16노드 × 30초 주기 = 1분당 32건 = **하루 약 9MB**
@@ -484,3 +516,14 @@ SELECT node_id, received_at, temperature, humidity, lux FROM readings ORDER BY r
 ### microSD 수명
 - High Endurance도 24/7 쓰기에 1~2년 후 약해질 수 있음. **반드시 외장 백업 cron 가동**.
 - 1년 주기로 microSD 교체 + 클론하면 안전.
+- (선택) Pi 5는 PCIe 슬롯 지원. NVMe HAT + M.2 SSD로 microSD 대체 가능 (Phase 2/3 확장 시점에 고려).
+
+### 5A 전원 경고 메시지가 계속 보임
+- 정품 27W 어댑터가 아닌 경우 발생 (5V/3A 일반 USB-C 충전기 등).
+- USB 포트 전류가 제한되어 외장 USB·키보드가 인식 안 될 수 있음.
+- → 27W 정품 어댑터로 교체.
+
+### Pi 5가 너무 뜨거움
+- `vcgencmd measure_temp`로 80°C 이상이면 throttling 발생.
+- 액티브 쿨러 팬이 도는지 케이스 열어 확인.
+- 케이스 통풍 슬릿이 막혀 있는지 확인.

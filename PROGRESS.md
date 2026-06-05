@@ -61,6 +61,46 @@
 사용자가 1교실 파일럿 테스트 → 부품 발주 → 16교실 확장.
 Phase 2(CO2) 추가는 코드 골격 그대로 두고 센서 드라이버·필드만 추가.
 
+## 2026-05-23 — 본문 전체 Pi 5 16GB로 갱신
+
+사용자가 실제로 Pi 5 16GB를 구매. 본문(단원·참조 매뉴얼·BOM·교사용 지도서·사이트) 전체를 Pi 5 기준으로 통일.
+
+**변경:**
+- `site/units/02-서버.md` — Pi 5 16GB로 본문 재작성, EEPROM 단계·5A 전원·액티브 쿨러·vcgencmd 추가, 새 리터러시 박스 ‘16GB가 일하는 순간’
+- `docs/SETUP-02-SERVER.md` — Pi 5 기준으로 부분 갱신 (준비물·EEPROM·쿨링·트러블슈팅)
+- `docs/BOM.md` — 서버 라인 Pi 5 16GB(+155k), 액티브 쿨러 케이스(+15k), 27W 어댑터(+8k). 총액 약 768,500원 (예산 +168,500 초과)
+- `docs/book/Unit_2_서버_라즈베리파이5.md` — 사이트와 동기화 (파일명 4→5)
+- `docs/book/teacher/교사용_통합_지도서.md` — Unit 2 지도안에 Pi 5 차이점 반영, 코칭 포인트 6개로 확장
+- `site/teacher/지도서.md` — 교사용 동기화
+- `site/index.mdx`·`site/units/01-파일럿.md` — ‘라즈베리 파이 4’ 표현 → ‘라즈베리 파이 5’
+- 사이트 사이드바에서 ‘부록’ 그룹 제거
+- `docs/UPGRADE-PI5.md`·`site/appendix/A-pi5-업그레이드.md` 삭제 (본문 자체가 Pi 5라 의미 없음)
+
+## 2026-05-21 — 랜딩 페이지 링크 404 수정
+
+증상: 사용자가 "본문이 안 보인다" 보고. 랜딩의 hero 버튼과 본문 링크 클릭 시 404.
+원인: `index.mdx`의 hero actions와 본문 절대 링크가 base path(`/climate-action-365`)를 포함하지 않음. Astro는 사용자 작성 절대 링크에 base를 자동 prepend하지 않음(starlight 사이드바·자동 링크는 prepend).
+수정: hero 두 개·본문 한 개 링크에 base path 명시. 재배포 + main 푸시.
+
+## 2026-05-21 — 사용자 ‘실시’ 결정 ✅
+
+사이트 디자인·교재 형식 모두 확정. 실제 운영 단계로 진입.
+
+## 2026-05-21 — GitHub Pages 배포 완료 ✅
+
+- 저장소: https://github.com/greatsong/climate-action-365 (public)
+- 라이브: **https://greatsong.github.io/climate-action-365/** (랜딩·Unit 1~4·교사용 모두 200)
+
+**우회 경로**: OAuth 토큰에 `workflow` scope가 없어 GitHub Actions 자동 배포는 사용 불가 → **로컬 빌드 + `gh-pages` 브랜치 직접 push + Pages source=legacy(gh-pages)로 전환** 방식으로 해결.
+
+향후 갱신 (한 줄):
+```bash
+cd site && npm run deploy
+```
+→ `gh-pages` npm 패키지가 `dist/`를 `gh-pages` 브랜치로 자동 push, Pages가 30초 안에 갱신.
+
+워크플로 파일(`.github/workflows/deploy.yml`)은 로컬에 남아 있음. 사용자가 향후 `gh auth refresh -h github.com -s workflow` 권한을 추가하면 그 시점부터 GitHub Actions 자동 배포로 전환 가능.
+
 ## 2026-05-21 — Astro + Starlight 사이트 생성 완료
 
 - 위치: [`site/`](site/) — 피코 책과 동일한 Starlight 0.30 + Pretendard 톤
