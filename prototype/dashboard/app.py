@@ -19,11 +19,14 @@ import streamlit as st
 
 SERVER_URL = "http://localhost:8000"
 
-# 학교보건법 기준
+# 임계값 — 온/습도는 학교보건법 시행규칙 별표 2.
+# 조도(light)는 Grove Light Sensor의 0~100% 상대값이라 학교보건법 lux 기준
+# (책상면 300 lux 이상)을 직접 매핑할 수 없습니다. 분석팀이 학기 초 자체 측정으로
+# ‘평일 1교시 형광등 ON 평균 ≈ N%’를 정해 자기 학교 임계값을 결정합니다.
 LIMITS = {
     "temperature": {"min": 18, "max": 28, "unit": "°C", "label": "온도"},
     "humidity":    {"min": 30, "max": 80, "unit": "%RH", "label": "습도"},
-    "lux":         {"min": 300, "max": None, "unit": "lux", "label": "조도"},
+    "light":       {"min": 30, "max": None, "unit": "%", "label": "조도(상대)"},
 }
 
 st.set_page_config(page_title="기후행동365 대시보드", layout="wide")
@@ -105,7 +108,7 @@ with tab1:
                 st.markdown(f"### {title}")
 
                 latest = node.get("latest") or {}
-                for metric in ("temperature", "humidity", "lux"):
+                for metric in ("temperature", "humidity", "light"):
                     val = latest.get(metric)
                     icon, status = status_color(metric, val)
                     lim = LIMITS[metric]
@@ -136,11 +139,11 @@ with tab2:
             c1, c2, c3 = st.columns(3)
             c1.metric("온도 (°C)", f"{df['temperature'].iloc[-1]:.1f}")
             c2.metric("습도 (%RH)", f"{df['humidity'].iloc[-1]:.1f}")
-            c3.metric("조도 (lux)", f"{df['lux'].iloc[-1]:.0f}")
+            c3.metric("조도 (%)", f"{df['light'].iloc[-1]:.1f}")
 
             st.line_chart(df.set_index("received_at")[["temperature"]], height=200)
             st.line_chart(df.set_index("received_at")[["humidity"]], height=200)
-            st.line_chart(df.set_index("received_at")[["lux"]], height=200)
+            st.line_chart(df.set_index("received_at")[["light"]], height=200)
 
 # === Tab 3: 분석팀 작업장 ===
 with tab3:

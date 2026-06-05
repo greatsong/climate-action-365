@@ -144,7 +144,7 @@ def measure():
         "ts": time.time(),
         "temperature": None,
         "humidity": None,
-        "lux": None,
+        "light": None,
     }
     try:
         t, rh = sensors.read_sht40()
@@ -154,16 +154,17 @@ def measure():
         log("SHT40 오류: {}".format(e))
 
     try:
-        payload["lux"] = round(sensors.read_bh1750(), 1)
+        payload["light"] = round(sensors.read_light(), 1)
     except Exception as e:
-        log("BH1750 오류: {}".format(e))
+        log("Light 센서 오류: {}".format(e))
 
     return payload
 
 
 def main():
     log("부팅: node_id={}".format(secrets.NODE_ID))
-    log("I2C 스캔: {}".format([hex(a) for a in sensors.scan()]))
+    log("I2C 스캔: {} (0x44 = SHT40 하나만 보이면 정상)".format(
+        [hex(a) for a in sensors.scan()]))
 
     connect_wifi()
 
@@ -171,8 +172,8 @@ def main():
         wdt.feed()
 
         payload = measure()
-        log("측정: T={} RH={} lux={}".format(
-            payload["temperature"], payload["humidity"], payload["lux"]))
+        log("측정: T={} RH={} light={}%".format(
+            payload["temperature"], payload["humidity"], payload["light"]))
 
         if send_once(payload):
             buffer_flush()  # 그 동안 쌓인 것도 함께

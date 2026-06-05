@@ -30,9 +30,10 @@ CREATE TABLE IF NOT EXISTS readings (
     node_id     TEXT    NOT NULL,
     ts          INTEGER NOT NULL,        -- Pico 내부 시간 (참고용)
     received_at TEXT    NOT NULL,        -- 서버 수신 시각 (ISO8601 UTC)
-    temperature REAL,
-    humidity    REAL,
-    lux         REAL,
+    temperature REAL,                    -- °C
+    humidity    REAL,                    -- %RH
+    light       REAL,                    -- Grove Light Sensor 상대 밝기 (0~100%)
+    lux         REAL,                    -- (예약) 향후 BH1750 등 lux 절대값 도입 시 사용
     -- Phase 2/3 확장 예약 컬럼
     co2_ppm     REAL,
     pm25        REAL,
@@ -68,7 +69,8 @@ class Reading(BaseModel):
     ts: Optional[int] = None
     temperature: Optional[float] = None
     humidity: Optional[float] = None
-    lux: Optional[float] = None
+    light: Optional[float] = None        # 0~100% 상대 밝기 (현재 Phase 1)
+    lux: Optional[float] = None          # 예약 (향후 BH1750 lux 절대값)
     # Phase 2/3 예약
     co2_ppm: Optional[float] = None
     pm25: Optional[float] = None
@@ -83,10 +85,11 @@ def post_reading(r: Reading):
     with get_db() as conn:
         conn.execute(
             """INSERT INTO readings
-               (node_id, ts, received_at, temperature, humidity, lux, co2_ppm, pm25, pm10)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (node_id, ts, received_at, temperature, humidity, light, lux,
+                co2_ppm, pm25, pm10)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (r.node_id, r.ts or 0, received,
-             r.temperature, r.humidity, r.lux,
+             r.temperature, r.humidity, r.light, r.lux,
              r.co2_ppm, r.pm25, r.pm10),
         )
     return {"ok": True, "received_at": received}
