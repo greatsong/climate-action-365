@@ -13,6 +13,7 @@ Unit 1 파일럿 모드 v2 — 라이브 시각화 + 메모 + CSV 다운로드.
 '테스트 + 재미' 모드 — 본격 운영은 main.py가 서버에 POST.
 """
 
+import gc
 import network
 import socket
 import time
@@ -364,18 +365,38 @@ def parse_form(body):
     return out
 
 
+def send_chunked(client, body_bytes, chunk=1024):
+    """큰 응답을 chunk 단위로 안전하게 보낸다 (메모리 보호)."""
+    if isinstance(body_bytes, str):
+        body_bytes = body_bytes.encode("utf-8")
+    n = len(body_bytes)
+    i = 0
+    while i < n:
+        sent = client.send(body_bytes[i:i + chunk])
+        if not sent:
+            break
+        i += sent
+
+
 def serve_csv(client, path):
     try:
+        gc.collect()
+        sz = os.stat(path)[6]
+        headers = ("HTTP/1.1 200 OK\r\n"
+                   "Content-Type: text/csv; charset=utf-8\r\n"
+                   "Content-Length: {}\r\n"
+                   "Content-Disposition: attachment; filename=\"{}\"\r\n"
+                   "Connection: close\r\n\r\n").format(sz, path)
+        client.send(headers.encode())
+        # 파일을 4KB chunk로 (전체를 메모리에 안 올림)
         with open(path, "rb") as f:
-            data = f.read()
-        resp = ("HTTP/1.1 200 OK\r\n"
-                "Content-Type: text/csv; charset=utf-8\r\n"
-                "Content-Disposition: attachment; filename=\"{}\"\r\n"
-                "Connection: close\r\n\r\n").format(path)
-        client.send(resp.encode())
-        client.send(data)
+            while True:
+                buf = f.read(4096)
+                if not buf:
+                    break
+                client.send(buf)
     except OSError:
-        client.send(b"HTTP/1.1 404 Not Found\r\n\r\n")
+        client.send(b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n")
 
 
 def handle_request(client, current):
@@ -396,12 +417,20 @@ def handle_request(client, current):
         path = path[:qpos]
 
     if method == "GET" and path == "/":
+        gc.collect()
         body = make_page(*current)
-        resp = ("HTTP/1.1 200 OK\r\n"
-                "Content-Type: text/html; charset=utf-8\r\n"
-                "Cache-Control: no-cache\r\n"
-                "Connection: close\r\n\r\n" + body)
-        client.send(resp.encode())
+        body_bytes = body.encode("utf-8")
+        headers = ("HTTP/1.1 200 OK\r\n"
+                   "Content-Type: text/html; charset=utf-8\r\n"
+                   "Content-Length: {}\r\n"
+                   "Cache-Control: no-cache\r\n"
+                   "Connection: close\r\n\r\n").format(len(body_bytes))
+        client.send(headers.encode())
+        # body는 1KB chunk로 분할 송신 (메모리 fragmentation 완화)
+        send_chunked(client, body_bytes, 1024)
+        # 큰 임시 문자열 즉시 정리
+        del body, body_bytes
+        gc.collect()
     elif method == "POST" and path == "/note":
         body_idx = req.find("\r\n\r\n")
         if body_idx >= 0:
@@ -446,7 +475,7 @@ def main():
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", 80))
-    srv.listen(2)
+    srv.listen(5)               # 폰이 보내는 favicon·prefetch 동시 큐
     srv.settimeout(0.03)
     log("HTTP 준비: http://" + wlan.ifconfig()[0] + "/")
 
@@ -471,6 +500,7 @@ def main():
             continue
 
         try:
+            client.settimeout(5)    # 응답 송신 안전 타임아웃
             handle_request(client, (last_t, last_rh, last_light))
         except Exception as e:
             log("응답 오류: " + str(e))
@@ -479,6 +509,7 @@ def main():
                 client.close()
             except Exception:
                 pass
+            gc.collect()    # 매 요청 후 청소
 
 
 main()
