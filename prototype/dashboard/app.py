@@ -195,17 +195,25 @@ def fetch_nodes():
     return r.json()
 
 
+def _to_kst(df):
+    """received_at(UTC) → Asia/Seoul tz-naive (그래프 X축이 KST)."""
+    if not df.empty and "received_at" in df.columns:
+        df["received_at"] = (
+            pd.to_datetime(df["received_at"], utc=True)
+            .dt.tz_convert("Asia/Seoul")
+            .dt.tz_localize(None)
+        )
+    return df
+
+
 @st.cache_data(ttl=15)
 def fetch_all_recent(since_minutes=60):
-    """모든 노드 + 모든 컬럼 최근 N분. 한 번에."""
+    """모든 노드 + 모든 컬럼 최근 N분 (received_at는 KST)."""
     r = requests.get(f"{SERVER_URL}/readings",
                      params={"since_minutes": since_minutes, "limit": 50000},
                      timeout=15)
     r.raise_for_status()
-    df = pd.DataFrame(r.json())
-    if not df.empty:
-        df["received_at"] = pd.to_datetime(df["received_at"])
-    return df
+    return _to_kst(pd.DataFrame(r.json()))
 
 
 @st.cache_data(ttl=15)
@@ -216,10 +224,7 @@ def fetch_node_readings(node_id, since_minutes=1440):
                              "limit": 50000},
                      timeout=15)
     r.raise_for_status()
-    df = pd.DataFrame(r.json())
-    if not df.empty:
-        df["received_at"] = pd.to_datetime(df["received_at"])
-    return df
+    return _to_kst(pd.DataFrame(r.json()))
 
 
 # ---------- 헬퍼 ----------
@@ -248,10 +253,11 @@ def is_stale(last_seen_iso, threshold_min=5):
 def trend_colors(df_node, metric, slots=TREND_SLOTS,
                  window_min=TREND_WINDOW_MIN):
     """노드 데이터프레임에서 최근 window_min분을 slots칸으로 나눠
-    각 칸의 평균값에 해당하는 색상 리스트 반환. 데이터 없으면 회색."""
+    각 칸의 평균값에 해당하는 색상 리스트 반환. 데이터 없으면 회색.
+    df_node['received_at']은 KST tz-naive 가정."""
     if df_node.empty or metric not in df_node.columns:
         return ["#e8e8e8"] * slots
-    end = datetime.now(timezone.utc)
+    end = kst_now()
     start = end - timedelta(minutes=window_min)
     df_w = df_node[(df_node["received_at"] >= start)
                    & (df_node["received_at"] <= end)]
