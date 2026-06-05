@@ -144,9 +144,11 @@ def sync_ntp():
 
 # ---------- 파일 ----------
 def ensure_csv():
+    """CSV 파일이 없으면 헤더와 함께 생성. UTF-8 BOM(﻿) 추가 →
+    엑셀에서 더블클릭으로 열어도 한글이 안 깨짐."""
     for path, header in [
-        (DATA_CSV, "timestamp_kst,t,rh,light\n"),
-        (NOTES_CSV, "timestamp_kst,note\n"),
+        (DATA_CSV, "﻿timestamp_kst,t,rh,light\n"),
+        (NOTES_CSV, "﻿timestamp_kst,note\n"),
     ]:
         try:
             os.stat(path)
@@ -378,22 +380,30 @@ ul.notes time{{color:#888;font-size:0.85em;margin-right:0.5em;
 
 # ---------- HTTP ----------
 def url_decode(s):
-    out = []
+    """URL-encoded 문자열을 UTF-8로 안전 디코딩.
+    한글 같은 다바이트 문자는 %EC%82%AC 형태로 3바이트 연속으로 오므로
+    바이트 단위로 모은 뒤 마지막에 한 번에 UTF-8 디코딩한다.
+    (한 글자씩 chr()로 변환하면 UTF-8 → Latin-1 오해석 모지바케 발생)
+    """
+    out = bytearray()
     i = 0
-    while i < len(s):
+    n = len(s)
+    while i < n:
         c = s[i]
         if c == '+':
-            out.append(' ')
-        elif c == '%' and i + 2 < len(s):
+            out.append(0x20)
+            i += 1
+        elif c == '%' and i + 2 < n:
             try:
-                out.append(chr(int(s[i + 1:i + 3], 16)))
-                i += 2
+                out.append(int(s[i + 1:i + 3], 16))
+                i += 3
             except ValueError:
-                out.append(c)
+                out.append(ord(c))
+                i += 1
         else:
-            out.append(c)
-        i += 1
-    return ''.join(out)
+            out.append(ord(c))
+            i += 1
+    return bytes(out).decode('utf-8', 'replace')
 
 
 def parse_form(body):
@@ -488,8 +498,8 @@ def handle_request(client, current):
     elif method == "GET" and path == "/clear":
         recent.clear()
         recent_notes.clear()
-        for p, h in [(DATA_CSV, "timestamp_kst,t,rh,light\n"),
-                     (NOTES_CSV, "timestamp_kst,note\n")]:
+        for p, h in [(DATA_CSV, "﻿timestamp_kst,t,rh,light\n"),
+                     (NOTES_CSV, "﻿timestamp_kst,note\n")]:
             try:
                 with open(p, "w") as f:
                     f.write(h)
