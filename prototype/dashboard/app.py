@@ -47,16 +47,26 @@ st.set_page_config(page_title="기후행동365 대시보드",
 
 # ---------- 스타일 ----------
 st.markdown("""<style>
-.block-container{padding-top:1.5rem;padding-bottom:1rem;max-width:1500px;}
+.block-container{padding-top:1.2rem;padding-bottom:1rem;max-width:1500px;
+                 padding-left:0.8rem;padding-right:0.8rem;}
 .grade-header{font-size:1.05em;color:#444;font-weight:700;
               border-left:5px solid #2ecc71;padding:0.35em 0.7em;
               margin:1.2em 0 0.5em;background:#f6fbf8;border-radius:3px;}
 
+/* ----- 반응형 카드 그리드 ----- */
+.room-grid{display:grid;
+           grid-template-columns:repeat(auto-fit, minmax(135px, 1fr));
+           gap:0.5em;margin-bottom:0.6em;}
+@media (max-width:480px){
+  .room-grid{grid-template-columns:repeat(2, minmax(0, 1fr));gap:0.4em;}
+}
+
 /* ----- 라이브 카드 ----- */
-.room-card{background:#fff;padding:0.6em 0.5em;border-radius:12px;
+.room-card{background:#fff;padding:0.6em 0.55em;border-radius:12px;
            box-shadow:0 2px 6px rgba(0,0,0,0.06);text-align:left;
-           min-height:9.5em;border:1px solid #f0f0f0;
-           transition:all 0.25s ease;}
+           min-height:10em;border:1px solid #f0f0f0;
+           transition:all 0.25s ease;overflow:hidden;
+           display:flex;flex-direction:column;}
 .room-card:hover{box-shadow:0 4px 12px rgba(0,0,0,0.12);
                  transform:translateY(-2px);border-color:#e0e0e0;}
 .room-card.stale{background:#fff5f5;border:1px solid #fcc;}
@@ -67,8 +77,10 @@ st.markdown("""<style>
                              0 2px 8px rgba(231,76,60,0.15);}
 
 /* ----- 헤더 + 라이브 도트 ----- */
-.room-id{font-size:0.9em;color:#333;font-weight:700;margin-bottom:0.4em;
-         display:flex;justify-content:space-between;align-items:center;gap:0.3em;}
+.room-id{font-size:0.9em;color:#333;font-weight:700;margin-bottom:0.25em;
+         display:flex;align-items:center;gap:0.3em;
+         white-space:nowrap;overflow:hidden;}
+.room-id .nid{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;}
 .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;
           background:#2ecc71;margin-right:0.3em;vertical-align:middle;
           box-shadow:0 0 0 0 rgba(46,204,113,0.6);
@@ -87,14 +99,16 @@ st.markdown("""<style>
   100% { box-shadow:0 0 0 0 rgba(231,76,60,0);     opacity:1; }
 }
 
-/* ----- 태그 ----- */
-.room-tag{font-size:0.65em;color:#888;background:#f0f0f0;padding:1px 5px;
-          border-radius:8px;font-weight:500;}
+/* ----- 태그 (헤더 아래 별도 줄) ----- */
+.room-tags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:0.35em;
+           min-height:0;}
+.room-tag{font-size:0.62em;color:#888;background:#f0f0f0;padding:1px 5px;
+          border-radius:8px;font-weight:500;white-space:nowrap;
+          line-height:1.4;}
 .room-tag.vent{background:#fff3cd;color:#856404;
                animation:tag-glow 2s ease-in-out infinite;}
 .room-tag.waste{background:#ffe5e5;color:#c0392b;font-weight:600;
-                animation:tag-pulse 1.4s ease-in-out infinite;
-                margin-left:2px;}
+                animation:tag-pulse 1.4s ease-in-out infinite;}
 @keyframes tag-glow {
   0%,100% { background:#fff3cd; }
   50%     { background:#ffe69c; }
@@ -106,24 +120,27 @@ st.markdown("""<style>
 .room-empty{color:#bbb;font-size:0.8em;padding:2em 0;text-align:center;}
 
 /* ----- 지표 행 ----- */
-.metric-row{display:flex;align-items:center;gap:0.35em;
-            font-size:0.88em;padding:0.12em 0;
-            font-variant-numeric:tabular-nums;}
-.metric-lab{font-size:0.7em;color:#999;font-weight:500;width:1em;}
-.metric-val{font-weight:700;width:3em;text-align:right;
-            transition:color 0.3s ease;}
+.metric-row{display:flex;align-items:center;gap:0.3em;
+            font-size:0.85em;padding:0.1em 0;
+            font-variant-numeric:tabular-nums;
+            flex-wrap:nowrap;}
+.metric-lab{font-size:0.68em;color:#999;font-weight:500;
+            width:0.9em;flex-shrink:0;}
+.metric-val{font-weight:700;min-width:2.4em;text-align:right;
+            transition:color 0.3s ease;flex-shrink:0;}
 .metric-val.danger{animation:val-pulse 1.4s ease-in-out infinite;}
 @keyframes val-pulse {
   0%,100% { opacity:1; }
   50%     { opacity:0.55; }
 }
-.metric-unit{font-size:0.7em;color:#aaa;}
+.metric-unit{font-size:0.65em;color:#aaa;flex-shrink:0;}
 
 /* ----- 5칸 추세 띠 (마지막 칸 = 현재 라이브) ----- */
-.trend-strip{display:inline-flex;gap:2px;margin-left:0.3em;align-items:center;}
-.trend-cell{width:9px;height:12px;border-radius:2px;
-            transition:background 0.3s ease;}
-.trend-cell.live{width:11px;height:14px;border-radius:3px;
+.trend-strip{display:inline-flex;gap:2px;margin-left:auto;
+             align-items:center;flex-shrink:0;}
+.trend-cell{width:8px;height:11px;border-radius:2px;
+            transition:background 0.3s ease;flex-shrink:0;}
+.trend-cell.live{width:10px;height:13px;border-radius:3px;
                  box-shadow:0 0 0 0 currentColor;
                  animation:cell-live 1.6s ease-in-out infinite;}
 @keyframes cell-live {
