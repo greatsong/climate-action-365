@@ -1,0 +1,4 @@
+*.xlsx
+*.xls
+*.csv
+!schedule_template.xlsx

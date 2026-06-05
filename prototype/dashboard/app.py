@@ -14,6 +14,7 @@
 """
 
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -274,25 +275,86 @@ st.caption(
 with st.sidebar:
     st.header("📅 학교 시간표")
     st.caption(f"오늘은 **{weekday_kr}요일**입니다.")
-    rows = sched.schedule_as_table()
-    for r in rows:
-        is_now = (current_class == r["교시"])
-        prefix = "▶️ " if is_now else "  "
-        style = "color:#2ecc71;font-weight:700;" if is_now else "color:#666;"
-        st.markdown(
-            f'<div style="{style}font-size:0.92em;padding:0.15em 0;">'
-            f'{prefix}<b>{r["교시"]}</b> · {r["시간"]}'
-            f'</div>',
-            unsafe_allow_html=True,
+
+    # 학급별 엑셀 업로드
+    sched.load_class_schedule()    # 저장된 파일 자동 로드
+    class_sched = sched.get_class_schedule()
+    if class_sched:
+        st.success(f"✅ 학급별 시간표 인식: {len(class_sched)}개 학급")
+        view_node = st.selectbox(
+            "학급별 시간표 미리보기",
+            sorted(class_sched.keys()),
         )
+        df_view = sched.class_schedule_for_node(view_node)
+        if df_view is not None:
+            st.dataframe(df_view, use_container_width=True, height=280)
+    else:
+        st.info("기본 시간표(월~금 1~7교시) 사용 중. 학급별 시간표를 "
+                "업로드하면 학급마다 공강 시간을 자동 인식합니다.")
+        rows = sched.schedule_as_table()
+        for r in rows:
+            is_now = (current_class == r["교시"])
+            prefix = "▶️ " if is_now else "  "
+            style = ("color:#2ecc71;font-weight:700;"
+                     if is_now else "color:#666;")
+            st.markdown(
+                f'<div style="{style}font-size:0.92em;padding:0.15em 0;">'
+                f'{prefix}<b>{r["교시"]}</b> · {r["시간"]}</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.divider()
+    upload = st.file_uploader(
+        "📤 시간표 엑셀/CSV 업로드",
+        type=["xlsx", "xls", "csv"],
+        help=("행=학급(예 1-1), 열=요일+교시(예 월1, 월2, ..., 금7). "
+              "셀에 과목명이 있으면 수업, 빈 셀은 공강(=비수업)."),
+    )
+    if upload is not None:
+        suffix = Path(upload.name).suffix.lower() or ".xlsx"
+        save_path = sched.SCHEDULE_DIR / f"schedule_data{suffix}"
+        with open(save_path, "wb") as f:
+            f.write(upload.getbuffer())
+        loaded = sched.load_class_schedule(save_path, force=True)
+        if loaded:
+            st.success(
+                f"✅ {upload.name} 저장 · {len(loaded)}개 학급 인식. "
+                "페이지를 새로 고침하세요."
+            )
+        else:
+            st.error("❌ 파일을 읽었지만 학급 데이터를 찾지 못했습니다. "
+                     "첫 행에 학급/월1/월2/.../금7 형태로 헤더를 두세요.")
+
+    with st.expander("📝 엑셀 형식 가이드"):
+        st.markdown(
+            """**행** : 학급 (예: `1-1`, `1-2`, ...)
+**열** : 요일+교시 (예: `월1`, `월2`, ..., `금7`)
+**셀** : 과목명 (빈 셀 = 공강/비수업)
+
+예시:
+| 학급 | 월1 | 월2 | 월3 | … | 금7 |
+|---|---|---|---|---|---|
+| 1-1 | 국어 | 수학 | 영어 | … |  |
+| 1-2 | 수학 | 국어 |  | … | 체육 |"""
+        )
+        if st.button("📥 빈 템플릿 엑셀 만들기"):
+            path = sched.make_template_excel()
+            with open(path, "rb") as f:
+                st.download_button(
+                    "schedule_template.xlsx 받기",
+                    data=f.read(),
+                    file_name="schedule_template.xlsx",
+                    mime=("application/vnd.openxmlformats-officedocument"
+                          ".spreadsheetml.sheet"),
+                )
+
     st.divider()
     st.caption(
         "비수업 시간에 다음이 켜져 있으면 ‘낭비 의심’으로 표시됩니다:\n\n"
         f"- 💡 조도 ≥ {sched.LIGHT_ON_THRESHOLD}% → 조명 ON\n"
         f"- ❄️ 온도 ≤ {sched.AIRCON_TEMP_THRESHOLD}°C (여름) → 에어컨 ON\n"
         f"- 🔥 온도 ≥ {sched.HEATER_TEMP_THRESHOLD}°C (겨울) → 난방 ON\n\n"
-        "임계값을 학교 환경에 맞게 조정하려면\n"
-        "`prototype/dashboard/schedule.py` 편집"
+        "임계값 조정은 `prototype/dashboard/schedule.py` 편집"
     )
 
 tab1, tab2, tab3, tab4 = st.tabs([
