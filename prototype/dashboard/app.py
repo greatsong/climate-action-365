@@ -760,12 +760,16 @@ with tab1:
                 color, lvl = status_for(metric, val)
                 violated = is_violation(metric, val)
                 cells = trend_colors(df_n, metric)
+                # 조도 '밝음' 흰색(#ffffff)은 카드 흰 배경에서 글자·펄스가
+                # 묻혀 안 보임 → 가독용 회색-남청으로 fallback
+                text_color = "#2c3e50" if color == "#ffffff" else color
                 strip_parts = []
                 for i, c in enumerate(cells):
                     if i == len(cells) - 1 and c != "#e8e8e8":
+                        pulse = "#9aa0a6" if c == "#ffffff" else c
                         strip_parts.append(
                             f'<span class="trend-cell live" '
-                            f'style="background:{c};color:{c}"></span>'
+                            f'style="background:{c};color:{pulse}"></span>'
                         )
                     else:
                         strip_parts.append(
@@ -781,7 +785,7 @@ with tab1:
                 parts.append(
                     f'<div class="metric-row">'
                     f'<span class="{emoji_cls}">{emoji}</span>'
-                    f'<span class="{val_cls}" style="color:{color}">{val_s}</span>'
+                    f'<span class="{val_cls}" style="color:{text_color}">{val_s}</span>'
                     f'<span class="metric-unit">{unit}</span>'
                     f'<span class="trend-strip">{strip}</span>'
                     f'</div>'
