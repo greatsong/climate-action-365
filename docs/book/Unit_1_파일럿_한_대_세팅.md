@@ -525,8 +525,7 @@ def measure():
 
 def main():
     log("부팅: node_id={}".format(secrets.NODE_ID))
-    log("I2C 스캔: {} (0x44 = SHT40 하나만 보이면 정상)".format(
-        [hex(a) for a in sensors.scan()]))
+    log("I2C 스캔: {} (0x44 = SHT40 하나만 보이면 정상)".format(sensors.scan()))
 
     connect_wifi()
 
