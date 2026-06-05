@@ -44,11 +44,20 @@ st.set_page_config(page_title="기후행동365 대시보드",
 
 # ---------- 스타일 ----------
 st.markdown("""<style>
-.block-container{padding-top:0.9rem;padding-bottom:0.5rem;max-width:1500px;
+.block-container{padding-top:2rem;padding-bottom:0.5rem;max-width:1500px;
                  padding-left:0.7rem;padding-right:0.7rem;}
-/* ----- 헤더 컴팩트 ----- */
-h1{font-size:1.45em !important;margin:0.2em 0 0.25em !important;
-   font-weight:700;line-height:1.45 !important;padding:0.1em 0 !important;}
+/* ----- 제목: 절대 잘리지 않게 ----- */
+h1, .stMarkdown h1{
+  font-size:1.55rem !important;
+  line-height:1.6 !important;
+  margin:0 0 0.3em !important;
+  padding:0.15em 0 0.05em !important;
+  font-weight:700 !important;
+  overflow:visible !important;
+  white-space:normal !important;
+  display:block !important;
+  -webkit-line-clamp:unset !important;
+}
 [data-testid="stCaptionContainer"]{margin-bottom:0.2em;}
 /* 빈 markdown 헤더(### ) 간격 줄이기 */
 h3{margin-top:0.4em !important;margin-bottom:0.2em !important;}
