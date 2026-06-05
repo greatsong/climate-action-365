@@ -415,38 +415,71 @@ def parse_form(body):
     return out
 
 
-def send_chunked(client, body_bytes, chunk=1024):
-    """큰 응답을 chunk 단위로 안전하게 보낸다 (메모리 보호)."""
-    if isinstance(body_bytes, str):
-        body_bytes = body_bytes.encode("utf-8")
-    n = len(body_bytes)
+def write_all(client, data, chunk=512, max_retries=200):
+    """모든 바이트를 보장 송신. 부분 전송·EAGAIN(-11) 처리.
+    chunk 작게(512) + 송신 후 짧은 양보 → CYW43 무선 칩에 시간을 줌."""
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    n = len(data)
     i = 0
+    retries = 0
     while i < n:
-        sent = client.send(body_bytes[i:i + chunk])
-        if not sent:
-            break
-        i += sent
+        try:
+            sent = client.send(data[i:i + chunk])
+            if sent is None or sent == 0:
+                # 전송 실패 — 잠시 후 재시도
+                retries += 1
+                if retries > max_retries:
+                    return False
+                time.sleep_ms(20)
+                continue
+            i += sent
+            retries = 0
+        except OSError as e:
+            # EAGAIN(-11)·ETIMEDOUT 등 — 잠시 양보 후 재시도
+            retries += 1
+            if retries > max_retries:
+                return False
+            time.sleep_ms(20)
+    return True
 
 
 def serve_csv(client, path):
     try:
         gc.collect()
         sz = os.stat(path)[6]
+        # 다운로드용으로 타임아웃 넉넉히 (큰 파일 대비)
+        try:
+            client.settimeout(30)
+        except Exception:
+            pass
+
         headers = ("HTTP/1.1 200 OK\r\n"
                    "Content-Type: text/csv; charset=utf-8\r\n"
                    "Content-Length: {}\r\n"
                    "Content-Disposition: attachment; filename=\"{}\"\r\n"
                    "Connection: close\r\n\r\n").format(sz, path)
-        client.send(headers.encode())
-        # 파일을 4KB chunk로 (전체를 메모리에 안 올림)
+        if not write_all(client, headers):
+            log("CSV 헤더 송신 실패")
+            return
+
         with open(path, "rb") as f:
+            sent_bytes = 0
             while True:
-                buf = f.read(4096)
+                buf = f.read(2048)
                 if not buf:
                     break
-                client.send(buf)
+                if not write_all(client, buf):
+                    log("CSV 본문 송신 중단 at {} / {}".format(sent_bytes, sz))
+                    return
+                sent_bytes += len(buf)
+                wdt.feed()      # 큰 파일 송신 중에도 WDT 안전
+        log("CSV 송신 완료: {} ({}B)".format(path, sent_bytes))
     except OSError:
-        client.send(b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n")
+        try:
+            client.send(b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n")
+        except Exception:
+            pass
 
 
 def handle_request(client, current):
@@ -475,10 +508,8 @@ def handle_request(client, current):
                    "Content-Length: {}\r\n"
                    "Cache-Control: no-cache\r\n"
                    "Connection: close\r\n\r\n").format(len(body_bytes))
-        client.send(headers.encode())
-        # body는 1KB chunk로 분할 송신 (메모리 fragmentation 완화)
-        send_chunked(client, body_bytes, 1024)
-        # 큰 임시 문자열 즉시 정리
+        write_all(client, headers)
+        write_all(client, body_bytes)
         del body, body_bytes
         gc.collect()
     elif method == "POST" and path == "/note":
