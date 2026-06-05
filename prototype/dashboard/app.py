@@ -749,18 +749,17 @@ with tab1:
         cards.append('</div>')
         st.markdown("".join(cards), unsafe_allow_html=True)
 
-    # 5칸 추세 띠 범례
+    # 학년 그리드와 아래 콘텐츠 사이 큰 spacer — 한 viewport에 학년까지만 집중
+    st.markdown('<div style="height:28vh;"></div>', unsafe_allow_html=True)
+
+    # ---------- 학교 전체 1시간 시계열 (plotly) ----------
+    st.subheader("📈 최근 1시간 · 학교 전체 평균")
     st.caption(
-        "📖 카드 안의 5칸 띠 = 최근 30분을 6분씩 5구간 평균 (좌→우 = 과거→현재). "
-        "🟩 적정 · 🟧/🟥 기준 밖 · ⬜ 데이터 없음. "
         f"적정 범위: 🌡️ {LIMITS['temperature']['min']}-{LIMITS['temperature']['max']}°C · "
         f"💧 {LIMITS['humidity']['min']}-{LIMITS['humidity']['max']}%RH · "
         f"💡 ≥{LIMITS['light']['min']}% "
         "(사이드바 ‘🎚️ 경고 기준 조정’에서 변경)"
     )
-
-    # ---------- 학교 전체 1시간 시계열 (plotly) ----------
-    st.subheader("📈 최근 1시간 · 학교 전체 평균")
 
     df_1h = fetch_all_recent(since_minutes=60)
     if df_1h.empty:
