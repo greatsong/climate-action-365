@@ -293,6 +293,10 @@ _i2c = I2C(I2C_ID, sda=Pin(SDA_PIN), scl=Pin(SCL_PIN), freq=I2C_FREQ)
 LIGHT_ADC_PIN = 26
 _light_adc = ADC(Pin(LIGHT_ADC_PIN))
 
+# LM358 OP-amp(non rail-to-rail) 보정 — 자세한 설명은 트러블슈팅 사다리 🪜 8.
+LIGHT_RAW_MIN = 500
+LIGHT_RAW_MAX = 42000
+
 
 def scan():
     """I2C 주소 목록 — hex 문자열로 반환. SHT40만 있으면 ['0x44']."""
@@ -328,7 +332,8 @@ def read_light_raw():
 
 def read_light():
     raw = _light_adc.read_u16()
-    pct = (raw / 65535.0) * 100.0
+    span = LIGHT_RAW_MAX - LIGHT_RAW_MIN
+    pct = (raw - LIGHT_RAW_MIN) / span * 100.0
     if pct < 0:
         pct = 0.0
     elif pct > 100:
@@ -762,6 +767,37 @@ print(sensors.scan())                 # ['0x44'] (문자열 리스트) 이어야
 ```
 
 기대한 결과가 안 나오면 코드가 틀린 게 아니라 **옛 파일이 보드에 남아 있는** 것입니다. Thonny 파일 패널에서 새로 업로드한 뒤 보드를 한 번 더 재시작하십시오.
+
+> **🪜 8. 조도가 64.5%에서 더 안 올라가는 이유 — 회로의 동적 범위 한계**
+>
+> 햇볕 아래 형광등을 향해 비춰도 `light` 값이 약 **64.5%에서 멈추는** 현상은 정상입니다. Grove Light Sensor (P) v1.1의 출력 회로는 **LM358 OP-amp 비반전 증폭기**인데, LM358은 ‘non rail-to-rail’이라 단일 공급 전압에서 출력이 VCC까지 못 올라가고 약 **(VCC − 1.2V)** 에서 saturate 합니다.
+>
+> - Shield **3.3V** 공급 → SIG 출력 최대 ≈ **2.13V** ≈ ADC raw **42,300** ≈ **64.5%** (정확히 관측값과 일치)
+> - 즉 이 센서의 ‘실제 100%’는 raw 65,535가 아니라 raw ≈ 42,000 근처입니다.
+
+#### 코드 1-8 — 우리 학교 환경에 맞춰 보정값 측정
+
+본문 `sensors.py`는 이미 `LIGHT_RAW_MIN = 500`, `LIGHT_RAW_MAX = 42000`을 디폴트로 두어 0~100%를 다시 펴 줍니다. 우리 학교 환경의 실제 saturate 한계가 다르면 셸에서 한 번 측정해 그 값을 박으면 됩니다.
+
+```python
+import sensors, time
+# 1) 책상 밑·서랍 안 등 가장 어두운 자리에 두고 10초간 평균
+samples = [sensors.read_light_raw() for _ in range(50)]
+print("어둠 raw 평균:", sum(samples)//50)   # → 이 값을 LIGHT_RAW_MIN 후보
+
+# 2) 형광등 ON 책상면 또는 창가 직사광 자리에서 10초간 평균
+input("가장 밝은 자리로 옮긴 뒤 Enter")
+samples = [sensors.read_light_raw() for _ in range(50)]
+print("최대 raw 평균:", sum(samples)//50)   # → 이 값을 LIGHT_RAW_MAX 후보
+```
+
+두 측정값을 `sensors.py` 상단의 상수에 박은 뒤 파일을 다시 업로드하면, ‘**우리 학교 가장 어두운 자리 = 0%, 가장 밝은 자리 = 100%**’가 됩니다. 분석팀이 학기 초에 한 번 보정해 두면 1년 내내 의미 있는 % 값이 됩니다.
+
+> **🔬 가설을 세워 봅시다 · 왜 0~100%로 펴서 쓰는가**
+>
+> 1. raw 값 그대로 두면 ‘65535가 최대’라고 가정한 수식이 64.5%에서 멈춰 답답합니다.
+> 2. 회로 한계를 인정하고 ‘우리 환경 안에서의 0~100%’로 다시 정규화하면, 사람의 직관(‘반쯤 밝다 = 50%’)과 데이터가 맞아 떨어집니다.
+> 3. 정확한 lux가 아니라 ‘상대 밝기’임을 받아들이는 것이 이 센서를 잘 쓰는 첫 단추입니다.
 
 ---
 

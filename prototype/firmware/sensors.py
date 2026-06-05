@@ -37,6 +37,14 @@ _i2c = I2C(I2C_ID, sda=Pin(SDA_PIN), scl=Pin(SCL_PIN), freq=I2C_FREQ)
 LIGHT_ADC_PIN = 26  # A0 (= GP26 = ADC0)
 _light_adc = ADC(Pin(LIGHT_ADC_PIN))
 
+# Grove Light Sensor (P) v1.1은 LM358 OP-amp(non rail-to-rail) 비반전 증폭기라,
+# Shield 3.3V 공급에서 SIG 출력이 약 2.13V (raw ≈ 42,300) 에서 saturate 합니다.
+# 즉 ‘이 센서의 실제 100%’는 raw 65,535가 아니라 약 42,000 근처입니다.
+# 학생이 자기 학교 환경에서 read_light_raw()의 최대값을 측정해 LIGHT_RAW_MAX를
+# 조정하면 ‘우리 학교 0~100%’가 자연스럽게 잡힙니다.
+LIGHT_RAW_MIN = 500       # 완전 암실 noise floor
+LIGHT_RAW_MAX = 42000     # 형광등 ON·직사광선 saturate 한계 (3.3V 공급 기준)
+
 
 def scan():
     """I2C 주소 목록 — hex 문자열로 반환. SHT40만 있으면 ['0x44']."""
@@ -72,9 +80,10 @@ def read_light_raw():
 
 
 def read_light():
-    """Grove Light Sensor의 상대 밝기(0~100%)."""
+    """Grove Light Sensor의 상대 밝기(0~100%) — 동적 범위 보정 적용."""
     raw = _light_adc.read_u16()
-    pct = (raw / 65535.0) * 100.0
+    span = LIGHT_RAW_MAX - LIGHT_RAW_MIN
+    pct = (raw - LIGHT_RAW_MIN) / span * 100.0
     if pct < 0:
         pct = 0.0
     elif pct > 100:
