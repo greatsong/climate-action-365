@@ -124,9 +124,9 @@ HEATER_TEMP_THRESHOLD = _init_th["heater"]
 
 # ---------- 시간 설정 JSON (런타임 우선) ----------
 # 점심시간 정책:
-#   "out_of_class" — 학생들이 급식실로 → 점심시간 비수업으로 처리 (낭비 감지 ON)
-#   "in_class"     — 교실에서 점심 → 수업 시간처럼 정상 사용 (낭비 감지 OFF)
-DEFAULT_LUNCH_POLICY = "out_of_class"
+#   "in_class"     — 교실에서 점심 → 정상 사용 (낭비 감지 OFF, 기본)
+#   "out_of_class" — 학생들이 급식실로 → 비수업 처리 (낭비 감지 ON)
+DEFAULT_LUNCH_POLICY = "in_class"
 
 
 def load_config():

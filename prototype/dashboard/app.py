@@ -591,7 +591,7 @@ with tab1:
                     "지표": lim["label"],
                     "현재값": f"{v:.1f}{lim['unit']}",
                     "상태": level,
-                    "기준": (f"{lim['min']}~{lim['max']}{lim['unit']}"
+                    "기준": (f"{lim['min']}–{lim['max']}{lim['unit']}"
                              if lim['max'] else f"≥{lim['min']}{lim['unit']}"),
                 })
             if metric == "temperature": all_t.append(v)
@@ -734,8 +734,8 @@ with tab1:
     st.caption(
         "📖 카드 안의 5칸 띠 = 최근 30분을 6분씩 5구간 평균 (좌→우 = 과거→현재). "
         "🟩 적정 · 🟧/🟥 기준 밖 · ⬜ 데이터 없음. "
-        f"적정 범위: 🌡️ {LIMITS['temperature']['min']}~{LIMITS['temperature']['max']}°C · "
-        f"💧 {LIMITS['humidity']['min']}~{LIMITS['humidity']['max']}%RH · "
+        f"적정 범위: 🌡️ {LIMITS['temperature']['min']}–{LIMITS['temperature']['max']}°C · "
+        f"💧 {LIMITS['humidity']['min']}–{LIMITS['humidity']['max']}%RH · "
         f"💡 ≥{LIMITS['light']['min']}% "
         "(사이드바 ‘🎚️ 경고 기준 조정’에서 변경)"
     )
@@ -787,7 +787,7 @@ with tab1:
         t_lim = LIMITS["temperature"]; h_lim = LIMITS["humidity"]; l_lim = LIMITS["light"]
         if "temperature" in minute_avg.columns:
             with cc1:
-                st.caption(f"🌡️ 온도 (°C) · 적정 {t_lim['min']}~{t_lim['max']}")
+                st.caption(f"🌡️ 온도 (°C) · 적정 {t_lim['min']}–{t_lim['max']}")
                 st.plotly_chart(
                     line_with_bands(minute_avg["temperature"],
                                     "#e74c3c", ymin=t_lim['min'], ymax=t_lim['max']),
@@ -795,7 +795,7 @@ with tab1:
                 )
         if "humidity" in minute_avg.columns:
             with cc2:
-                st.caption(f"💧 습도 (%RH) · 적정 {h_lim['min']}~{h_lim['max']}")
+                st.caption(f"💧 습도 (%RH) · 적정 {h_lim['min']}–{h_lim['max']}")
                 st.plotly_chart(
                     line_with_bands(minute_avg["humidity"],
                                     "#3498db", ymin=h_lim['min'], ymax=h_lim['max']),
