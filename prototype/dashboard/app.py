@@ -22,6 +22,8 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
+import schedule as sched      # 학급별 시간표 + 낭비 감지
+
 SERVER_URL = "http://localhost:8000"
 
 # 학교 구조 (당곡고 16개 교실 = 1학년 8반 + 2학년 8반)
@@ -89,9 +91,16 @@ st.markdown("""<style>
           border-radius:8px;font-weight:500;}
 .room-tag.vent{background:#fff3cd;color:#856404;
                animation:tag-glow 2s ease-in-out infinite;}
+.room-tag.waste{background:#ffe5e5;color:#c0392b;font-weight:600;
+                animation:tag-pulse 1.4s ease-in-out infinite;
+                margin-left:2px;}
 @keyframes tag-glow {
   0%,100% { background:#fff3cd; }
   50%     { background:#ffe69c; }
+}
+@keyframes tag-pulse {
+  0%,100% { background:#ffe5e5; box-shadow:0 0 0 0 rgba(192,57,43,0); }
+  50%     { background:#ffc9c9; box-shadow:0 0 0 3px rgba(192,57,43,0.1); }
 }
 .room-empty{color:#bbb;font-size:0.8em;padding:2em 0;text-align:center;}
 
@@ -243,12 +252,48 @@ def needs_ventilation(latest):
             and rh > LIMITS["humidity"]["max"] - 5)
 
 
+def kst_now():
+    """현재 시각 (Pi 5 timezone이 Asia/Seoul로 설정되어 있다고 가정)."""
+    return datetime.now()
+
+
 # ---------- 헤더 ----------
 st.title("🌱 당곡고 기후행동365 — 학교 전체 환경")
+now_kst = kst_now()
+current_class = sched.current_period(now_kst)
+class_label = f"📚 {current_class} 중" if current_class else "🛌 비수업 시간"
+weekday_kr = ["월", "화", "수", "목", "금", "토", "일"][now_kst.weekday()]
 st.caption(
-    "학교보건법 시행규칙 별표 2 기준 · Phase 1 (온습도 + 조도) · "
-    "5칸 띠 = 최근 30분(6분씩 5구간 평균)"
+    f"학교보건법 별표 2 기준 · Phase 1 (온습도 + 조도) · "
+    f"5칸 띠 = 최근 30분 · "
+    f"**지금: {now_kst.strftime('%m/%d')} ({weekday_kr}) "
+    f"{now_kst.strftime('%H:%M')} · {class_label}**"
 )
+
+# ---------- 사이드바: 시간표 ----------
+with st.sidebar:
+    st.header("📅 학교 시간표")
+    st.caption(f"오늘은 **{weekday_kr}요일**입니다.")
+    rows = sched.schedule_as_table()
+    for r in rows:
+        is_now = (current_class == r["교시"])
+        prefix = "▶️ " if is_now else "  "
+        style = "color:#2ecc71;font-weight:700;" if is_now else "color:#666;"
+        st.markdown(
+            f'<div style="{style}font-size:0.92em;padding:0.15em 0;">'
+            f'{prefix}<b>{r["교시"]}</b> · {r["시간"]}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    st.divider()
+    st.caption(
+        "비수업 시간에 다음이 켜져 있으면 ‘낭비 의심’으로 표시됩니다:\n\n"
+        f"- 💡 조도 ≥ {sched.LIGHT_ON_THRESHOLD}% → 조명 ON\n"
+        f"- ❄️ 온도 ≤ {sched.AIRCON_TEMP_THRESHOLD}°C (여름) → 에어컨 ON\n"
+        f"- 🔥 온도 ≥ {sched.HEATER_TEMP_THRESHOLD}°C (겨울) → 난방 ON\n\n"
+        "임계값을 학교 환경에 맞게 조정하려면\n"
+        "`prototype/dashboard/schedule.py` 편집"
+    )
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "🏫 학교 전체",
@@ -282,16 +327,20 @@ with tab1:
     today_by_node = (df_today.groupby("node_id")
                      if not df_today.empty else None)
 
-    # 위반 + 평균 집계
+    # 위반 + 평균 집계 + 에너지 낭비 감지
     violations = []
     all_t, all_rh, all_lt = [], [], []
     vent_nodes = []
+    waste_alerts = []        # [(node_id, [(icon, label), ...]), ...]
     for n in nodes:
         if is_stale(n["last_seen"]):
             continue
         latest = n.get("latest") or {}
         if needs_ventilation(latest):
             vent_nodes.append(n["node_id"])
+        wastes = sched.detect_waste(latest, now_kst, node_id=n["node_id"])
+        if wastes:
+            waste_alerts.append((n["node_id"], wastes))
         for metric in ("temperature", "humidity", "light"):
             v = latest.get(metric)
             if v is None:
@@ -314,19 +363,24 @@ with tab1:
     danger_rooms = len({v["교실"] for v in violations})
 
     # ---------- KPI ----------
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     c1.metric("📡 온라인", f"{online} / {total}",
               help="최근 5분 내 수신 / 예상 전체")
     c2.metric("🚨 기준 초과", f"{danger_rooms} 교실",
               delta=f"{len(violations)}건" if violations else None,
               delta_color="inverse")
-    c3.metric("💨 환기 권장", f"{len(vent_nodes)} 교실",
+    c3.metric("⚡ 에너지 낭비", f"{len(waste_alerts)} 교실",
+              help=("비수업 시간인데 조명·에어컨·난방이 켜져 있다고 "
+                    "의심되는 노드 수"),
+              delta="비수업 시간" if not current_class else "수업 중",
+              delta_color="inverse" if not current_class else "off")
+    c4.metric("💨 환기 권장", f"{len(vent_nodes)} 교실",
               help="현재 온도·습도 모두 기준 가까이")
-    c4.metric("🌡️ 평균 온도",
+    c5.metric("🌡️ 평균 온도",
               f"{np.mean(all_t):.1f}°C" if all_t else "—")
-    c5.metric("💧 평균 습도",
+    c6.metric("💧 평균 습도",
               f"{np.mean(all_rh):.0f}%" if all_rh else "—")
-    c6.metric("💡 평균 조도",
+    c7.metric("💡 평균 조도",
               f"{np.mean(all_lt):.0f}%" if all_lt else "—")
 
     # ---------- 학년별 그리드 (현재값 + 5칸 추세 띠) ----------
@@ -360,10 +414,17 @@ with tab1:
                 else:
                     df_n = pd.DataFrame()
 
-                # 환기 라벨
-                vent_label = ""
+                # 라벨들 (환기·낭비)
+                tags = []
                 if needs_ventilation(latest):
-                    vent_label = '<span class="room-tag vent">💨 환기</span>'
+                    tags.append('<span class="room-tag vent">💨 환기</span>')
+                wastes = sched.detect_waste(latest, now_kst,
+                                            node_id=node_id)
+                for icon, label in wastes:
+                    tags.append(
+                        f'<span class="room-tag waste">{icon} {label}</span>'
+                    )
+                vent_label = "".join(tags)
 
                 # 카드 클래스: stale / danger / normal
                 card_danger = False
@@ -452,10 +513,11 @@ with tab1:
                             .mean(numeric_only=True))
         cc1, cc2, cc3 = st.columns(3)
 
-        def line_with_bands(series, color, ymin=None, ymax=None, title=""):
+        def line_with_bands(series, color, ymin=None, ymax=None):
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=series.index, y=series.values, mode="lines",
+                name="",                                        # placeholder 제거
                 line=dict(color=color, width=2.5),
                 hovertemplate="%{x|%H:%M}<br>%{y:.1f}<extra></extra>",
             ))
@@ -473,9 +535,11 @@ with tab1:
                               annotation_font_size=10)
             fig.update_layout(
                 height=200, margin=dict(l=10, r=10, t=10, b=10),
-                showlegend=False, title=None,
+                showlegend=False,
+                title=dict(text=""),                            # 'undefined' 방지
                 xaxis_title=None, yaxis_title=None,
                 plot_bgcolor="#fafafa",
+                hovermode="x unified",
             )
             return fig
 
@@ -533,6 +597,44 @@ with tab1:
         else:
             st.success("오늘 모든 노드가 기준 안에 있었습니다.")
 
+    # ---------- 에너지 낭비 알림 ----------
+    st.markdown("###  ")
+    if current_class:
+        st.subheader(f"⚡ 에너지 낭비 의심 — 지금은 {current_class} 중")
+        st.caption(
+            "지금은 수업 시간이라 에어컨·조명이 켜져 있는 게 정상입니다. "
+            "비수업 시간(쉬는 시간·점심·하교 후)에 다시 확인하세요."
+        )
+    else:
+        st.subheader("⚡ 에너지 낭비 의심 — 비수업 시간")
+        if waste_alerts:
+            rows = []
+            for nid, wastes in waste_alerts:
+                node = node_by_id.get(nid, {})
+                latest = node.get("latest") or {}
+                rows.append({
+                    "교실": nid,
+                    "감지": " ".join(f"{i} {l}" for i, l in wastes),
+                    "온도": f"{latest.get('temperature', 0):.1f}°C"
+                            if latest.get('temperature') is not None else "—",
+                    "조도": f"{latest.get('light', 0):.0f}%"
+                            if latest.get('light') is not None else "—",
+                    "마지막 수신": (node.get("last_seen") or "")[:19].replace("T", " "),
+                })
+            st.dataframe(
+                pd.DataFrame(rows),
+                hide_index=True, use_container_width=True,
+            )
+            st.info(
+                "💡 캠페인 아이디어: 위 교실로 직접 가서 에너지 끄기 + 메모 "
+                "기록(언제·누가·껐을 때 효과 30분 후 데이터 확인)"
+            )
+        else:
+            st.success(
+                "✅ 비수업 시간인데 모든 노드가 ‘에너지 OFF’ 상태입니다. "
+                "에너지 절약 잘 되고 있어요."
+            )
+
     # ---------- 현재 기준 위반 ----------
     st.markdown("###  ")
     st.subheader("🚨 지금 기준 위반 중")
@@ -578,6 +680,7 @@ with tab2:
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
                     x=ts_df.index, y=ts_df[col], mode="lines",
+                    name="",
                     line=dict(color=color, width=2),
                     hovertemplate="%{x|%m-%d %H:%M}<br>%{y:.1f}<extra></extra>",
                 ))
@@ -590,6 +693,8 @@ with tab2:
                 fig.update_layout(
                     height=220, margin=dict(l=10, r=10, t=10, b=10),
                     showlegend=False, plot_bgcolor="#fafafa",
+                    title=dict(text=""),
+                    xaxis_title=None, yaxis_title=None,
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -647,6 +752,8 @@ with tab3:
                 fig.update_layout(
                     height=420, margin=dict(l=10, r=10, t=10, b=10),
                     plot_bgcolor="#fafafa",
+                    title=dict(text=""),
+                    xaxis_title=None, yaxis_title=None,
                     legend=dict(orientation="h", yanchor="bottom",
                                 y=1.02, xanchor="right", x=1),
                 )
@@ -723,8 +830,9 @@ with tab4:
         fig.update_layout(
             height=max(300, len(pivot) * 30 + 80),
             margin=dict(l=10, r=10, t=10, b=10),
-            xaxis=dict(side="top"),
-            yaxis=dict(autorange="reversed"),
+            title=dict(text=""),
+            xaxis=dict(side="top", title=None),
+            yaxis=dict(autorange="reversed", title=None),
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -748,6 +856,7 @@ with tab4:
         fig.update_layout(
             height=240, margin=dict(l=10, r=10, t=10, b=10),
             showlegend=False, plot_bgcolor="#fafafa",
+            title=dict(text=""),
             xaxis_title=None, yaxis_title="위반 건수",
         )
         st.plotly_chart(fig, use_container_width=True)
