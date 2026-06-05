@@ -31,11 +31,8 @@ SERVER_URL = "http://localhost:8000"
 GRADES = [1, 2]
 ROOMS_PER_GRADE = 8
 
-LIMITS = {
-    "temperature": {"min": 18, "max": 28, "unit": "°C", "label": "온도"},
-    "humidity":    {"min": 30, "max": 80, "unit": "%RH", "label": "습도"},
-    "light":       {"min": 30, "max": None, "unit": "%", "label": "조도"},
-}
+# 경고 기준 — schedule.py의 thresholds.json에서 로드 (사이드바에서 편집)
+LIMITS = sched.load_thresholds()["limits"]
 
 # 추세 띠 설정
 TREND_WINDOW_MIN = 30   # 카드 안의 띠가 다루는 시간 범위
@@ -126,6 +123,14 @@ st.markdown("""<style>
             flex-wrap:nowrap;}
 .metric-lab{font-size:0.68em;color:#999;font-weight:500;
             width:0.9em;flex-shrink:0;}
+.metric-emoji{font-size:0.95em;width:1.3em;flex-shrink:0;
+              text-align:center;}
+.metric-emoji.glow{filter:drop-shadow(0 0 4px rgba(243,156,18,0.7));
+                   animation:bulb-glow 2.5s ease-in-out infinite;}
+@keyframes bulb-glow {
+  0%,100% { filter:drop-shadow(0 0 3px rgba(243,156,18,0.5)); }
+  50%     { filter:drop-shadow(0 0 7px rgba(243,156,18,0.9)); }
+}
 .metric-val{font-weight:700;min-width:2.4em;text-align:right;
             transition:color 0.3s ease;flex-shrink:0;}
 .metric-val.danger{animation:val-pulse 1.4s ease-in-out infinite;}
@@ -276,22 +281,85 @@ def kst_now():
 
 
 # ---------- 헤더 ----------
-st.title("🌱 당곡고 기후행동365 — 학교 전체 환경")
+st.title("🚀 우주최강 당곡고 기후행동365 🌱 — 학교 전체 환경")
 now_kst = kst_now()
 current_class = sched.current_period(now_kst)
 class_label = f"📚 {current_class} 중" if current_class else "🛌 비수업 시간"
 weekday_kr = ["월", "화", "수", "목", "금", "토", "일"][now_kst.weekday()]
 st.caption(
-    f"학교보건법 별표 2 기준 · Phase 1 (온습도 + 조도) · "
-    f"5칸 띠 = 최근 30분 · "
+    f"🌡️ 온도 · 💧 습도 · 💡 조도 · 📈 5칸 띠 = 최근 30분 · "
     f"**지금: {now_kst.strftime('%m/%d')} ({weekday_kr}) "
-    f"{now_kst.strftime('%H:%M')} · {class_label}**"
+    f"{now_kst.strftime('%H:%M')} · {class_label}** ✨"
 )
 
 # ---------- 사이드바: 시간표 ----------
 with st.sidebar:
     st.header("📅 학교 시간표")
     st.caption(f"오늘은 **{weekday_kr}요일**입니다.")
+
+    # ----- 경고 기준(LIMITS) + 낭비 임계값 슬라이더 -----
+    with st.expander("🎚️ 경고 기준 조정 (적정 범위 + 낭비 감지)"):
+        cur_th = sched.load_thresholds()
+        with st.form("th_form", border=False):
+            st.markdown("**🌡️ 온도 적정 범위 (°C)**")
+            t_min, t_max = st.slider(
+                "온도", 0, 40,
+                (int(cur_th["limits"]["temperature"]["min"]),
+                 int(cur_th["limits"]["temperature"]["max"])),
+                label_visibility="collapsed",
+            )
+
+            st.markdown("**💧 습도 적정 범위 (%RH)**")
+            h_min, h_max = st.slider(
+                "습도", 0, 100,
+                (int(cur_th["limits"]["humidity"]["min"]),
+                 int(cur_th["limits"]["humidity"]["max"])),
+                label_visibility="collapsed",
+            )
+
+            st.markdown("**💡 조도 권장 하한 (%)**")
+            l_min = st.slider(
+                "조도", 0, 100,
+                int(cur_th["limits"]["light"]["min"]),
+                label_visibility="collapsed",
+            )
+
+            st.divider()
+            st.markdown("**⚡ 에너지 낭비 감지 임계값** (비수업 시간 적용)")
+            light_on = st.slider(
+                "💡 조명 ON 의심 — 조도 ≥",
+                0, 100, int(cur_th["light_on"]),
+            )
+            aircon = st.slider(
+                "❄️ 에어컨 ON 의심 — 온도 ≤ (여름)",
+                15.0, 28.0, float(cur_th["aircon"]), 0.5,
+            )
+            heater = st.slider(
+                "🔥 난방 ON 의심 — 온도 ≥ (겨울)",
+                18.0, 30.0, float(cur_th["heater"]), 0.5,
+            )
+
+            cA, cB = st.columns([3, 1])
+            saved_th = cA.form_submit_button("💾 저장", type="primary",
+                                             use_container_width=True)
+            reset_th = cB.form_submit_button("↺ 기본",
+                                             use_container_width=True)
+            if saved_th:
+                new_limits = {
+                    "temperature": {**cur_th["limits"]["temperature"],
+                                    "min": t_min, "max": t_max},
+                    "humidity":    {**cur_th["limits"]["humidity"],
+                                    "min": h_min, "max": h_max},
+                    "light":       {**cur_th["limits"]["light"],
+                                    "min": l_min, "max": None},
+                }
+                sched.save_thresholds(new_limits, light_on, aircon, heater)
+                st.success("✅ 저장됨. 다시 로드합니다…")
+                st.rerun()
+            elif reset_th:
+                sched.reset_thresholds()
+                st.success("✅ 기본값으로 복귀. 다시 로드합니다…")
+                st.rerun()
 
     # ----- 교시·점심시간 편집 -----
     with st.expander("⚙️ 교시·점심시간 설정 (학교별 조정)"):
@@ -428,11 +496,11 @@ with st.sidebar:
 
     st.divider()
     st.caption(
-        "비수업 시간에 다음이 켜져 있으면 ‘낭비 의심’으로 표시됩니다:\n\n"
+        "비수업 시간에 다음이 켜져 있으면 ‘낭비 의심’ 라벨이 카드에 뜹니다:\n\n"
         f"- 💡 조도 ≥ {sched.LIGHT_ON_THRESHOLD}% → 조명 ON\n"
         f"- ❄️ 온도 ≤ {sched.AIRCON_TEMP_THRESHOLD}°C (여름) → 에어컨 ON\n"
         f"- 🔥 온도 ≥ {sched.HEATER_TEMP_THRESHOLD}°C (겨울) → 난방 ON\n\n"
-        "임계값 조정은 `prototype/dashboard/schedule.py` 편집"
+        "임계값 조정은 위쪽 **🎚️ 경고 기준 조정**에서."
     )
 
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -592,10 +660,10 @@ with tab1:
                 tags_html,
             ]
 
-            for label, val, fmt, unit, metric in [
-                ("T", latest.get("temperature"), "{:.1f}", "°", "temperature"),
-                ("H", latest.get("humidity"),    "{:.0f}", "%", "humidity"),
-                ("L", latest.get("light"),       "{:.0f}", "%", "light"),
+            for emoji, val, fmt, unit, metric in [
+                ("🌡️", latest.get("temperature"), "{:.1f}", "°", "temperature"),
+                ("💧", latest.get("humidity"),    "{:.0f}", "%", "humidity"),
+                ("💡", latest.get("light"),       "{:.0f}", "%", "light"),
             ]:
                 color, lvl = status_for(metric, val)
                 cells = trend_colors(df_n, metric)
@@ -614,9 +682,13 @@ with tab1:
                 val_s = fmt.format(val) if val is not None else "—"
                 val_cls = ("metric-val danger" if lvl in ("높음", "낮음")
                            else "metric-val")
+                # 💡 조도가 충분히 밝으면 노랑 빛나는 효과
+                emoji_cls = "metric-emoji"
+                if metric == "light" and val is not None and val >= 50:
+                    emoji_cls += " glow"
                 parts.append(
                     f'<div class="metric-row">'
-                    f'<span class="metric-lab">{label}</span>'
+                    f'<span class="{emoji_cls}">{emoji}</span>'
                     f'<span class="{val_cls}" style="color:{color}">{val_s}</span>'
                     f'<span class="metric-unit">{unit}</span>'
                     f'<span class="trend-strip">{strip}</span>'
@@ -630,9 +702,12 @@ with tab1:
 
     # 5칸 추세 띠 범례
     st.caption(
-        "📖 카드 안의 5칸 띠 = 최근 30분을 6분씩 5구간으로 나눈 평균 색상 (좌→우 = 과거→현재). "
+        "📖 카드 안의 5칸 띠 = 최근 30분을 6분씩 5구간 평균 (좌→우 = 과거→현재). "
         "🟩 적정 · 🟧/🟥 기준 밖 · ⬜ 데이터 없음. "
-        "환기 권장은 온도·습도가 동시에 기준 가까이 닿을 때 자동 표시."
+        f"적정 범위: 🌡️ {LIMITS['temperature']['min']}~{LIMITS['temperature']['max']}°C · "
+        f"💧 {LIMITS['humidity']['min']}~{LIMITS['humidity']['max']}%RH · "
+        f"💡 ≥{LIMITS['light']['min']}% "
+        "(사이드바 ‘🎚️ 경고 기준 조정’에서 변경)"
     )
 
     # ---------- 학교 전체 1시간 시계열 (plotly) ----------
@@ -679,28 +754,29 @@ with tab1:
             )
             return fig
 
+        t_lim = LIMITS["temperature"]; h_lim = LIMITS["humidity"]; l_lim = LIMITS["light"]
         if "temperature" in minute_avg.columns:
             with cc1:
-                st.caption("🌡️ 온도 (°C) · 기준 18~28")
+                st.caption(f"🌡️ 온도 (°C) · 적정 {t_lim['min']}~{t_lim['max']}")
                 st.plotly_chart(
                     line_with_bands(minute_avg["temperature"],
-                                    "#e74c3c", ymin=18, ymax=28),
+                                    "#e74c3c", ymin=t_lim['min'], ymax=t_lim['max']),
                     use_container_width=True,
                 )
         if "humidity" in minute_avg.columns:
             with cc2:
-                st.caption("💧 습도 (%RH) · 기준 30~80")
+                st.caption(f"💧 습도 (%RH) · 적정 {h_lim['min']}~{h_lim['max']}")
                 st.plotly_chart(
                     line_with_bands(minute_avg["humidity"],
-                                    "#3498db", ymin=30, ymax=80),
+                                    "#3498db", ymin=h_lim['min'], ymax=h_lim['max']),
                     use_container_width=True,
                 )
         if "light" in minute_avg.columns:
             with cc3:
-                st.caption("💡 조도 (%) · 자체 기준 ≥30")
+                st.caption(f"💡 조도 (%) · 권장 ≥{l_lim['min']}")
                 st.plotly_chart(
                     line_with_bands(minute_avg["light"],
-                                    "#f39c12", ymin=30),
+                                    "#f39c12", ymin=l_lim['min']),
                     use_container_width=True,
                 )
 

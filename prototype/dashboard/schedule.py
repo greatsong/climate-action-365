@@ -36,12 +36,90 @@ SCHEDULE_DEFAULT = {
     "lunch": ("12:20", "13:10"),
 }
 
-# ---------- 에너지 낭비 임계값 ----------
-LIGHT_ON_THRESHOLD = 40        # %
-AIRCON_TEMP_THRESHOLD = 24     # °C 미만 (여름 적용)
-HEATER_TEMP_THRESHOLD = 23     # °C 초과 (겨울 적용)
+# ---------- 기본 적정 범위 + 에너지 낭비 임계값 ----------
+DEFAULT_LIMITS = {
+    "temperature": {"min": 18, "max": 28, "unit": "°C", "label": "온도"},
+    "humidity":    {"min": 30, "max": 80, "unit": "%RH", "label": "습도"},
+    "light":       {"min": 30, "max": None, "unit": "%", "label": "조도"},
+}
+DEFAULT_LIGHT_ON_THRESHOLD = 40        # %
+DEFAULT_AIRCON_TEMP_THRESHOLD = 24     # °C 미만 (여름)
+DEFAULT_HEATER_TEMP_THRESHOLD = 23     # °C 초과 (겨울)
+
+# Backwards-compat (모듈 외부에서 직접 참조 가능)
+LIGHT_ON_THRESHOLD = DEFAULT_LIGHT_ON_THRESHOLD
+AIRCON_TEMP_THRESHOLD = DEFAULT_AIRCON_TEMP_THRESHOLD
+HEATER_TEMP_THRESHOLD = DEFAULT_HEATER_TEMP_THRESHOLD
+
 SUMMER_MONTHS = {5, 6, 7, 8, 9}
 WINTER_MONTHS = {11, 12, 1, 2, 3}
+
+
+THRESHOLDS_FILE = SCHEDULE_DIR / "thresholds.json"
+
+
+def load_thresholds():
+    """경고 기준 + 낭비 임계값 로드. 파일 없으면 DEFAULT."""
+    if THRESHOLDS_FILE.exists():
+        try:
+            with open(THRESHOLDS_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            limits = {
+                k: {**DEFAULT_LIMITS[k], **data.get("limits", {}).get(k, {})}
+                for k in DEFAULT_LIMITS
+            }
+            return {
+                "limits": limits,
+                "light_on": int(data.get(
+                    "light_on", DEFAULT_LIGHT_ON_THRESHOLD)),
+                "aircon": float(data.get(
+                    "aircon", DEFAULT_AIRCON_TEMP_THRESHOLD)),
+                "heater": float(data.get(
+                    "heater", DEFAULT_HEATER_TEMP_THRESHOLD)),
+            }
+        except Exception:
+            pass
+    return {
+        "limits": {k: dict(v) for k, v in DEFAULT_LIMITS.items()},
+        "light_on": DEFAULT_LIGHT_ON_THRESHOLD,
+        "aircon": DEFAULT_AIRCON_TEMP_THRESHOLD,
+        "heater": DEFAULT_HEATER_TEMP_THRESHOLD,
+    }
+
+
+def save_thresholds(limits, light_on, aircon, heater):
+    data = {
+        "limits": {
+            k: {"min": v["min"], "max": v["max"]} for k, v in limits.items()
+        },
+        "light_on": int(light_on),
+        "aircon": float(aircon),
+        "heater": float(heater),
+    }
+    with open(THRESHOLDS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    # 모듈 전역도 갱신 (기존 detect_waste가 LIGHT_ON_THRESHOLD 직접 참조)
+    global LIGHT_ON_THRESHOLD, AIRCON_TEMP_THRESHOLD, HEATER_TEMP_THRESHOLD
+    LIGHT_ON_THRESHOLD = int(light_on)
+    AIRCON_TEMP_THRESHOLD = float(aircon)
+    HEATER_TEMP_THRESHOLD = float(heater)
+    return data
+
+
+def reset_thresholds():
+    if THRESHOLDS_FILE.exists():
+        THRESHOLDS_FILE.unlink()
+    global LIGHT_ON_THRESHOLD, AIRCON_TEMP_THRESHOLD, HEATER_TEMP_THRESHOLD
+    LIGHT_ON_THRESHOLD = DEFAULT_LIGHT_ON_THRESHOLD
+    AIRCON_TEMP_THRESHOLD = DEFAULT_AIRCON_TEMP_THRESHOLD
+    HEATER_TEMP_THRESHOLD = DEFAULT_HEATER_TEMP_THRESHOLD
+
+
+# 시작 시 한 번 모듈 전역 동기화
+_init_th = load_thresholds()
+LIGHT_ON_THRESHOLD = _init_th["light_on"]
+AIRCON_TEMP_THRESHOLD = _init_th["aircon"]
+HEATER_TEMP_THRESHOLD = _init_th["heater"]
 
 
 # ---------- 시간 설정 JSON (런타임 우선) ----------
